@@ -35,9 +35,8 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت واجهة XFCE والنواة المستقرة وحزمة الإقلاع المباشر
-        apt-get install -y --no-install-recommends \
-          linux-image-generic casper xorg xfce4 lightdm \
+        # 1. تثبيت واجهة XFCE والنواة الكاملة للإقلاع المباشر
+        apt-get install -y linux-image-generic casper xorg xfce4 lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
@@ -120,14 +119,17 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Kernel Correctly
+    - name: Pack RootFS and Force Kernel Copying
       run: |
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
         
-        # نسخ النواة بأمر مباشر مع ضمان تعيين الاسم السليم لمحتوى casper
-        sudo cp -L build/rootfs/boot/vmlinuz build/iso/casper/vmlinuz || sudo cp $(ls build/rootfs/boot/vmlinuz-* | head -n 1) build/iso/casper/vmlinuz || true
-        sudo cp -L build/rootfs/boot/initrd.img build/iso/casper/initrd.img || sudo cp $(ls build/rootfs/boot/initrd.img-* | head -n 1) build/iso/casper/initrd.img || true
+        # البحث المباشر عن أي ملف نواة ونسخه بالاسم المطلق vmlinuz
+        KNAME=$(sudo find build/rootfs/boot/ -name "vmlinuz-*" | head -n 1)
+        INAME=$(sudo find build/rootfs/boot/ -name "initrd.img-*" | head -n 1)
+
+        sudo cp -f "$KNAME" build/iso/casper/vmlinuz
+        sudo cp -f "$INAME" build/iso/casper/initrd.img
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
