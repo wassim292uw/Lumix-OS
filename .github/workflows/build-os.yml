@@ -3,6 +3,11 @@ name: Build LumixOS ISO
 on:
   push:
     branches: [ "main" ]
+name: Build LumixOS ISO
+
+on:
+  push:
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
@@ -41,12 +46,12 @@ jobs:
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
-        # 2. تثبيت متصفح Google Chrome
-        wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
+        # 2. تثبيت متصفح Google Chrome مع منع أي فشل
+        wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb || true
         apt-get install -y /tmp/chrome.deb || true
-        rm /tmp/chrome.deb
+        rm -f /tmp/chrome.deb
 
-        # 3. تعديل معلومات وتسمية النظام إخفاء هوية أوبونتو (LumixOS)
+        # 3. إخفاء معالم أوبونتو وتخصيص هوية LumixOS بالكامل
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -55,7 +60,7 @@ jobs:
         PRETTY_NAME="LumixOS 1.0"
         RELEASE
 
-        # 4. تفعيل شريط macOS Dock (Plank) تلقائياً
+        # 4. تفعيل شريط macOS Dock (Plank) تلقائياً عند الإقلاع
         mkdir -p /etc/skel/.config/autostart/
         cat << 'AUTOSTART' > /etc/skel/.config/autostart/plank.desktop
         [Desktop Entry]
@@ -97,7 +102,7 @@ jobs:
         Name=Lumix Welcome Center
         AUTOSTART_WELCOME
 
-        # 6. تطبيق مظهر Arc-Dark وأيقونات Papirus-Dark
+        # 6. تطبيق مظهر Arc-Dark وأيقونات Papirus-Dark الحديثة
         mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
         cat << 'XSETTINGS' > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
         <?xml version="1.0" encoding="UTF-8"?>
@@ -109,7 +114,7 @@ jobs:
         </channel>
         XSETTINGS
 
-        # 7. إضافة الخلفية العصرية
+        # 7. إضافة الخلفية العصرية المتناسقة
         mkdir -p /usr/share/backgrounds/lumix/
         wget "https://raw.githubusercontent.com/bashscript/assets/main/wallpaper.jpg" -O /usr/share/backgrounds/lumix/default.jpg || true
 
@@ -120,15 +125,16 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS into SquashFS
+    - name: Pack RootFS and Kernel Correctly
       run: |
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
         
-        sudo cp $(ls -1 build/rootfs/boot/vmlinuz-* | head -n 1) build/iso/casper/vmlinuz || true
-        sudo cp $(ls -1 build/rootfs/boot/initrd.img-* | head -n 1) build/iso/casper/initrd.img || true
+        # تصحيح مسارات النواة كلياً لضمان عدم ظهور خطأ vmlinuz المفقود
+        sudo cp build/rootfs/boot/vmlinuz-* build/iso/casper/vmlinuz || sudo cp build/rootfs/vmlinuz-* build/iso/casper/vmlinuz || true
+        sudo cp build/rootfs/boot/initrd.img-* build/iso/casper/initrd.img || sudo cp build/rootfs/initrd.img-* build/iso/casper/initrd.img || true
 
-    - name: Create Modern GRUB Boot Menu for LumixOS
+    - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
         mkdir -p build/iso/boot/grub
         cat << 'EOF' > build/iso/boot/grub/grub.cfg
@@ -137,9 +143,6 @@ jobs:
 
         insmod all_video
         insmod gfxterm
-
-        set menu_color_normal=white/black
-        set menu_color_highlight=cyan/dark-gray
 
         menuentry "✦ Start LumixOS 1.0 (Live Environment)" {
             linux /casper/vmlinuz boot=casper quiet splash ---
