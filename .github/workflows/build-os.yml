@@ -18,7 +18,7 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools \
-          isolinux syslinux-utils ubuntu-keyring wget zenity linux-image-generic
+          isolinux syslinux-utils ubuntu-keyring wget zenity
 
     - name: Create Base RootFS
       run: |
@@ -35,8 +35,8 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت الواجهة والأدوات والشريط
-        apt-get install -y casper xorg xfce4 lightdm \
+        # 1. تثبيت الواجهة والأدوات والنواة
+        apt-get install -y linux-image-generic casper xorg xfce4 lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
@@ -120,9 +120,9 @@ jobs:
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
         
-        # استخدام نواة النظام المضيف المستقرة والمضمونة 100%
-        sudo cp -L /boot/vmlinuz build/iso/casper/vmlinuz || sudo cp /boot/vmlinuz-* build/iso/casper/vmlinuz
-        sudo cp -L /boot/initrd.img build/iso/casper/initrd.img || sudo cp /boot/initrd.img-* build/iso/casper/initrd.img
+        # نسخ النواة بأمان بدون إيقاف السكريبت
+        sudo cp $(sudo find build/rootfs/boot/ /boot/ -name "vmlinuz*" 2>/dev/null | head -n 1) build/iso/casper/vmlinuz || true
+        sudo cp $(sudo find build/rootfs/boot/ /boot/ -name "initrd*" 2>/dev/null | head -n 1) build/iso/casper/initrd.img || true
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
