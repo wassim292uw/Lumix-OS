@@ -35,9 +35,9 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت الواجهة والأدوات الأساسية والشريط والسِمة والألعاب
+        # 1. تثبيت واجهة XFCE والنواة المستقرة وحزمة الإقلاع المباشر
         apt-get install -y --no-install-recommends \
-          linux-generic casper xorg xfce4 lightdm \
+          linux-image-generic casper xorg xfce4 lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
@@ -46,7 +46,7 @@ jobs:
         apt-get install -y /tmp/chrome.deb || true
         rm -f /tmp/chrome.deb
 
-        # 3. إخفاء معالم أوبونتو وتخصيص هوية LumixOS بالكامل
+        # 3. إخفاء معالم أوبونتو وتخصيص هوية LumixOS
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -55,7 +55,7 @@ jobs:
         PRETTY_NAME="LumixOS 1.0"
         RELEASE
 
-        # 4. تفعيل شريط macOS Dock (Plank) تلقائياً عند الإقلاع
+        # 4. تفعيل شريط macOS Dock (Plank)
         mkdir -p /etc/skel/.config/autostart/
         cat << 'AUTOSTART' > /etc/skel/.config/autostart/plank.desktop
         [Desktop Entry]
@@ -97,7 +97,7 @@ jobs:
         Name=Lumix Welcome Center
         AUTOSTART_WELCOME
 
-        # 6. تطبيق مظهر Arc-Dark وأيقونات Papirus-Dark الحديثة
+        # 6. تطبيق المظهر والأيقونات
         mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
         cat << 'XSETTINGS' > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
         <?xml version="1.0" encoding="UTF-8"?>
@@ -109,7 +109,7 @@ jobs:
         </channel>
         XSETTINGS
 
-        # 7. إضافة الخلفية العصرية
+        # 7. إضافة الخلفية
         mkdir -p /usr/share/backgrounds/lumix/
         wget "https://raw.githubusercontent.com/bashscript/assets/main/wallpaper.jpg" -O /usr/share/backgrounds/lumix/default.jpg || true
 
@@ -125,12 +125,9 @@ jobs:
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
         
-        # البحث عن ملف النواة وتسميته بالضبط باسم vmlinuz و initrd.img
-        VMLINUZ_FILE=$(ls -1 build/rootfs/boot/vmlinuz-* 2>/dev/null | head -n 1)
-        INITRD_FILE=$(ls -1 build/rootfs/boot/initrd.img-* 2>/dev/null | head -n 1)
-
-        sudo cp "$VMLINUZ_FILE" build/iso/casper/vmlinuz
-        sudo cp "$INITRD_FILE" build/iso/casper/initrd.img
+        # نسخ النواة بأمر مباشر مع ضمان تعيين الاسم السليم لمحتوى casper
+        sudo cp -L build/rootfs/boot/vmlinuz build/iso/casper/vmlinuz || sudo cp $(ls build/rootfs/boot/vmlinuz-* | head -n 1) build/iso/casper/vmlinuz || true
+        sudo cp -L build/rootfs/boot/initrd.img build/iso/casper/initrd.img || sudo cp $(ls build/rootfs/boot/initrd.img-* | head -n 1) build/iso/casper/initrd.img || true
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
