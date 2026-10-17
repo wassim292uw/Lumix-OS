@@ -3,11 +3,6 @@ name: Build LumixOS ISO
 on:
   push:
     branches: [ "main" ]
-name: Build LumixOS ISO
-
-on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
