@@ -18,7 +18,7 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools \
-          isolinux syslinux-utils ubuntu-keyring wget zenity linux-image-generic
+          isolinux syslinux-utils ubuntu-keyring wget zenity
 
     - name: Create Base RootFS
       run: |
@@ -35,8 +35,8 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت واجهة XFCE والنواة وحزم الإقلاع
-        apt-get install -y linux-image-generic casper xorg xfce4 lightdm \
+        # 1. تثبيت الواجهة والأدوات الأساسية وشريط الماك والألعاب
+        apt-get install -y casper xorg xfce4 lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
@@ -115,26 +115,15 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Setup Kernel
+    - name: Pack RootFS and Inject Host Kernel
       run: |
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
         
-        # استخراج وتخصيص ملف النواة بأمان ومرونة مطلقة يمنع توقف السكريبت
-        KFILE=$(ls build/rootfs/boot/vmlinuz-* 2>/dev/null | head -n 1)
-        IFILE=$(ls build/rootfs/boot/initrd.img-* 2>/dev/null | head -n 1)
-
-        if [ -n "$KFILE" ] && [ -f "$KFILE" ]; then
-          sudo cp -f "$KFILE" build/iso/casper/vmlinuz
-        else
-          sudo cp -f /boot/vmlinuz build/iso/casper/vmlinuz || sudo cp -f /boot/vmlinuz-* build/iso/casper/vmlinuz || true
-        fi
-
-        if [ -n "$IFILE" ] && [ -f "$IFILE" ]; then
-          sudo cp -f "$IFILE" build/iso/casper/initrd.img
-        else
-          sudo cp -f /boot/initrd.img build/iso/casper/initrd.img || sudo cp -f /boot/initrd.img-* build/iso/casper/initrd.img || true
-        fi
+        # نسخ نواة النظام الأساسية المستقرة والموجودة حتماً في Runner
+        KERNEL_VER=$(uname -r)
+        sudo cp -L /boot/vmlinuz-${KERNEL_VER} build/iso/casper/vmlinuz || sudo cp -L /boot/vmlinuz* build/iso/casper/vmlinuz
+        sudo cp -L /boot/initrd.img-${KERNEL_VER} build/iso/casper/initrd.img || sudo cp -L /boot/initrd* build/iso/casper/initrd.img
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
