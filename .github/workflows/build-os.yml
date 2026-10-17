@@ -18,7 +18,7 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools \
-          isolinux syslinux-utils ubuntu-keyring wget zenity
+          isolinux syslinux-utils ubuntu-keyring wget zenity linux-image-generic
 
     - name: Create Base RootFS
       run: |
@@ -35,17 +35,13 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت الواجهة والأدوات الأساسية وشريط الماك والألعاب
-        apt-get install -y casper xorg xfce4 lightdm \
+        # 1. تثبيت الواجهة والأدوات الأساسية وشريط الماك والألعاب والمتصفح
+        apt-get install -y --no-install-recommends \
+          casper xorg xfce4 lightdm firefox \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
-        # 2. تثبيت متصفح Google Chrome
-        wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb || true
-        apt-get install -y /tmp/chrome.deb || true
-        rm -f /tmp/chrome.deb
-
-        # 3. إخفاء معالم أوبونتو وتخصيص هوية LumixOS
+        # 2. إخفاء معالم أوبونتو وتخصيص هوية LumixOS
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -54,7 +50,7 @@ jobs:
         PRETTY_NAME="LumixOS 1.0"
         RELEASE
 
-        # 4. تفعيل شريط macOS Dock (Plank)
+        # 3. تفعيل شريط macOS Dock (Plank)
         mkdir -p /etc/skel/.config/autostart/
         cat << 'AUTOSTART' > /etc/skel/.config/autostart/plank.desktop
         [Desktop Entry]
@@ -66,7 +62,7 @@ jobs:
         Name=Plank Dock
         AUTOSTART
 
-        # 5. أداة اختيار وتثبيت البرامج التفاعلية (Lumix Welcome Center)
+        # 4. أداة اختيار وتثبيت البرامج التفاعلية (Lumix Welcome Center)
         mkdir -p /usr/local/bin/
         cat << 'APPINSTALLER' > /usr/local/bin/lumix-welcome
         #!/bin/bash
@@ -96,7 +92,7 @@ jobs:
         Name=Lumix Welcome Center
         AUTOSTART_WELCOME
 
-        # 6. تطبيق المظهر والأيقونات
+        # 5. تطبيق المظهر والأيقونات
         mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
         cat << 'XSETTINGS' > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
         <?xml version="1.0" encoding="UTF-8"?>
@@ -120,10 +116,10 @@ jobs:
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
         
-        # نسخ نواة النظام الأساسية المستقرة والموجودة حتماً في Runner
+        # استخراج النواة المستقرة المتاحة في النظام المضيف
         KERNEL_VER=$(uname -r)
-        sudo cp -L /boot/vmlinuz-${KERNEL_VER} build/iso/casper/vmlinuz || sudo cp -L /boot/vmlinuz* build/iso/casper/vmlinuz
-        sudo cp -L /boot/initrd.img-${KERNEL_VER} build/iso/casper/initrd.img || sudo cp -L /boot/initrd* build/iso/casper/initrd.img
+        sudo cp -L /boot/vmlinuz-${KERNEL_VER} build/iso/casper/vmlinuz || sudo cp -L /boot/vmlinuz* build/iso/casper/vmlinuz || true
+        sudo cp -L /boot/initrd.img-${KERNEL_VER} build/iso/casper/initrd.img || sudo cp -L /boot/initrd* build/iso/casper/initrd.img || true
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
