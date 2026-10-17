@@ -35,13 +35,13 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت الواجهة والأدوات الأساسية وشريط الماك والألعاب والمتصفح
+        # 1. تثبيت الواجهة والأدوات الأساسية
         apt-get install -y --no-install-recommends \
           casper xorg xfce4 lightdm firefox \
           plank papirus-icon-theme arc-theme \
-          aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
+          wget curl zenity python3 || true
 
-        # 2. إخفاء معالم أوبونتو وتخصيص هوية LumixOS
+        # 2. تخصيص هوية LumixOS
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -62,23 +62,11 @@ jobs:
         Name=Plank Dock
         AUTOSTART
 
-        # 4. أداة اختيار وتثبيت البرامج التفاعلية (Lumix Welcome Center)
+        # 4. أداة الترحيب Lumix Welcome Center
         mkdir -p /usr/local/bin/
         cat << 'APPINSTALLER' > /usr/local/bin/lumix-welcome
         #!/bin/bash
-        CHOICES=$(zenity --list --checklist \
-          --title="LumixOS Welcome & App Installer" \
-          --text="اختر حزم البرامج والتطبيقات التي تريد تثبيتها على نظامك:" \
-          --column="تثبيت" --column="الفئة" --column="التطبيقات المضمنة" \
-          FALSE "أدوات البرمجة" "VS Code, Git, Python3, NodeJS" \
-          FALSE "أدوات المونتاج والتصميم" "Kdenlive, GIMP, Inkscape, Audacity" \
-          FALSE "أدوات الذكاء الاصطناعي" "Ollama AI, Local AI Workspace Tools" \
-          FALSE "حزمة الألعاب والمكتبة" "Steam, Lutris, Retro Games" \
-          --width=600 --height=400)
-
-        if [ -n "$CHOICES" ]; then
-          zenity --info --text="جاري بدء تثبيت البرامج المختارة..." --timeout=5
-        fi
+        zenity --info --title="LumixOS 1.0" --text="أهلاً بك في نظام LumixOS!" --width=300 || true
         APPINSTALLER
         chmod +x /usr/local/bin/lumix-welcome
 
@@ -111,15 +99,14 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Inject Host Kernel
+    - name: Pack RootFS and Setup Kernel
       run: |
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
         
-        # استخراج النواة المستقرة المتاحة في النظام المضيف
-        KERNEL_VER=$(uname -r)
-        sudo cp -L /boot/vmlinuz-${KERNEL_VER} build/iso/casper/vmlinuz || sudo cp -L /boot/vmlinuz* build/iso/casper/vmlinuz || true
-        sudo cp -L /boot/initrd.img-${KERNEL_VER} build/iso/casper/initrd.img || sudo cp -L /boot/initrd* build/iso/casper/initrd.img || true
+        # استخراج النواة المستقرة المتاحة في Runner لضمان توفرها دائماً
+        sudo cp -L /boot/vmlinuz build/iso/casper/vmlinuz || sudo cp -f /boot/vmlinuz-* build/iso/casper/vmlinuz || true
+        sudo cp -L /boot/initrd.img build/iso/casper/initrd.img || sudo cp -f /boot/initrd.img-* build/iso/casper/initrd.img || true
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
