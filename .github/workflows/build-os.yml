@@ -41,7 +41,7 @@ jobs:
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
-        # 2. تثبيت متصفح Google Chrome مع منع أي فشل
+        # 2. تثبيت متصفح Google Chrome
         wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb || true
         apt-get install -y /tmp/chrome.deb || true
         rm -f /tmp/chrome.deb
@@ -109,7 +109,7 @@ jobs:
         </channel>
         XSETTINGS
 
-        # 7. إضافة الخلفية العصرية المتناسقة
+        # 7. إضافة الخلفية العصرية
         mkdir -p /usr/share/backgrounds/lumix/
         wget "https://raw.githubusercontent.com/bashscript/assets/main/wallpaper.jpg" -O /usr/share/backgrounds/lumix/default.jpg || true
 
@@ -125,9 +125,12 @@ jobs:
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
         
-        # تصحيح مسارات النواة كلياً لضمان عدم ظهور خطأ vmlinuz المفقود
-        sudo cp build/rootfs/boot/vmlinuz-* build/iso/casper/vmlinuz || sudo cp build/rootfs/vmlinuz-* build/iso/casper/vmlinuz || true
-        sudo cp build/rootfs/boot/initrd.img-* build/iso/casper/initrd.img || sudo cp build/rootfs/initrd.img-* build/iso/casper/initrd.img || true
+        # البحث عن ملف النواة وتسميته بالضبط باسم vmlinuz و initrd.img
+        VMLINUZ_FILE=$(ls -1 build/rootfs/boot/vmlinuz-* 2>/dev/null | head -n 1)
+        INITRD_FILE=$(ls -1 build/rootfs/boot/initrd.img-* 2>/dev/null | head -n 1)
+
+        sudo cp "$VMLINUZ_FILE" build/iso/casper/vmlinuz
+        sudo cp "$INITRD_FILE" build/iso/casper/initrd.img
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
