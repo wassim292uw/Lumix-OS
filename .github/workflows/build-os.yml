@@ -18,7 +18,7 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools \
-          isolinux syslinux-utils ubuntu-keyring wget zenity
+          isolinux syslinux-utils ubuntu-keyring wget zenity linux-image-generic
 
     - name: Create Base RootFS
       run: |
@@ -35,8 +35,8 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت النواة الأساسية والواجهة
-        apt-get install -y --reinstall linux-image-generic casper xorg xfce4 lightdm \
+        # 1. تثبيت الواجهة والأدوات والشريط
+        apt-get install -y casper xorg xfce4 lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
@@ -108,10 +108,6 @@ jobs:
         </channel>
         XSETTINGS
 
-        # 7. إضافة الخلفية
-        mkdir -p /usr/share/backgrounds/lumix/
-        wget "https://raw.githubusercontent.com/bashscript/assets/main/wallpaper.jpg" -O /usr/share/backgrounds/lumix/default.jpg || true
-
         apt-get clean
         EOF
 
@@ -119,26 +115,14 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Ensure Kernel Presence
+    - name: Pack RootFS and Setup Kernel
       run: |
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
         
-        # البحث عن النواة داخل النظام المبني، وفي حال عدم وجودها يتم نسخ نواة النظام الحالية لضمان نجاح البناء 100%
-        SYS_VMLINUZ=$(ls -1 build/rootfs/boot/vmlinuz-* 2>/dev/null | head -n 1)
-        SYS_INITRD=$(ls -1 build/rootfs/boot/initrd.img-* 2>/dev/null | head -n 1)
-
-        if [ -f "$SYS_VMLINUZ" ]; then
-          sudo cp "$SYS_VMLINUZ" build/iso/casper/vmlinuz
-        else
-          sudo cp /boot/vmlinuz-$(uname -r) build/iso/casper/vmlinuz || sudo cp /boot/vmlinuz* build/iso/casper/vmlinuz
-        fi
-
-        if [ -f "$SYS_INITRD" ]; then
-          sudo cp "$SYS_INITRD" build/iso/casper/initrd.img
-        else
-          sudo cp /boot/initrd.img-$(uname -r) build/iso/casper/initrd.img || sudo cp /boot/initrd* build/iso/casper/initrd.img
-        fi
+        # استخدام نواة النظام المضيف المستقرة والمضمونة 100%
+        sudo cp -L /boot/vmlinuz build/iso/casper/vmlinuz || sudo cp /boot/vmlinuz-* build/iso/casper/vmlinuz
+        sudo cp -L /boot/initrd.img build/iso/casper/initrd.img || sudo cp /boot/initrd.img-* build/iso/casper/initrd.img
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
