@@ -35,10 +35,16 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت واجهة XFCE والنواة الكاملة للإقلاع المباشر
+        # 1. تثبيت الواجهة والنواة وحزم الإقلاع المباشر
         apt-get install -y linux-image-generic casper xorg xfce4 lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
+
+        # عمل رابط ثابت ومباشر للنواة لمنع أي خطأ في الأسماء
+        cd /boot
+        ln -sf vmlinuz-* vmlinuz || true
+        ln -sf initrd.img-* initrd.img || true
+        cd /
 
         # 2. تثبيت متصفح Google Chrome
         wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb || true
@@ -119,17 +125,14 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Force Kernel Copying
+    - name: Pack RootFS and Copy Kernel Directly
       run: |
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
         
-        # البحث المباشر عن أي ملف نواة ونسخه بالاسم المطلق vmlinuz
-        KNAME=$(sudo find build/rootfs/boot/ -name "vmlinuz-*" | head -n 1)
-        INAME=$(sudo find build/rootfs/boot/ -name "initrd.img-*" | head -n 1)
-
-        sudo cp -f "$KNAME" build/iso/casper/vmlinuz
-        sudo cp -f "$INAME" build/iso/casper/initrd.img
+        # نسخ النواة المربوطة رمزياً مباشرة بدون تعقيد
+        sudo cp -L build/rootfs/boot/vmlinuz build/iso/casper/vmlinuz
+        sudo cp -L build/rootfs/boot/initrd.img build/iso/casper/initrd.img
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
