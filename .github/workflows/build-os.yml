@@ -35,8 +35,8 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت النواة والواجهة المكتملة
-        apt-get install -y --no-install-recommends \
+        # 1. تثبيت النواة المباشرة والواجهة كاملة
+        apt-get install -y \
           linux-image-generic casper xorg xfce4 xfce4-goodies lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
@@ -112,12 +112,20 @@ jobs:
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
 
-        # استخراج اسم ملف النواة الفعلي ونسخه بأمان مع تتبع الروابط الرمزية (-L)
-        KERN_PATH=$(sudo find build/rootfs/boot/ /boot/ -type f -name "vmlinuz*" | head -n 1)
-        INIT_PATH=$(sudo find build/rootfs/boot/ /boot/ -type f -name "initrd*" | head -n 1)
+        # استخدام أمر النسخ المرن للـ Kernel والـ Initrd من المجلد المجهز مباشرة
+        for f in build/rootfs/boot/vmlinuz-*; do
+          if [ -f "$f" ]; then
+            sudo cp -L "$f" build/iso/casper/vmlinuz
+            break
+          fi
+        done
 
-        sudo cp -L "$KERN_PATH" build/iso/casper/vmlinuz
-        sudo cp -L "$INIT_PATH" build/iso/casper/initrd.img
+        for f in build/rootfs/boot/initrd.img-*; do
+          if [ -f "$f" ]; then
+            sudo cp -L "$f" build/iso/casper/initrd.img
+            break
+          fi
+        done
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
