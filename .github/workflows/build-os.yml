@@ -18,14 +18,15 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso genisoimage mtools \
-          isolinux syslinux-utils ubuntu-keyring wget zenity curl git
+          isolinux syslinux syslinux-common syslinux-utils grub-pc-bin grub-efi-amd64-bin \
+          ubuntu-keyring wget zenity curl git
 
     - name: Create Base RootFS Architecture
       run: |
         mkdir -p build/rootfs
         sudo debootstrap --arch=amd64 --no-check-gpg jammy build/rootfs http://archive.ubuntu.com/ubuntu/
 
-    - name: Install Kernel and Complete System Packages
+    - name: Install Kernel, Complete Desktop Features, and Customizations
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -35,9 +36,62 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        apt-get install -y linux-image-generic casper xorg xfce4 xfce4-goodies lightdm plank papirus-icon-theme arc-theme firefox git wget curl zenity
+        # 1. تثبيت النواة المباشرة الرسمية والواجهة كاملة والتطبيقات والألعاب
+        apt-get install -y linux-image-generic casper xorg xfce4 xfce4-goodies lightdm \
+          plank papirus-icon-theme arc-theme firefox git wget curl zenity \
+          aisleriot gnome-mines gnome-sudoku pingus python3
 
+        # 2. تخصيص إعدادات هوية LumixOS
         echo "lumixos" > /etc/hostname
+        cat << 'RELEASE' > /etc/os-release
+        NAME="LumixOS"
+        VERSION="1.0 (Next-Gen Edition)"
+        ID=lumixos
+        PRETTY_NAME="LumixOS 1.0"
+        RELEASE
+
+        # 3. إعداد التشغيل التلقائي لشريط macOS (Plank)
+        mkdir -p /etc/skel/.config/autostart/
+        cat << 'AUTOSTART' > /etc/skel/.config/autostart/plank.desktop
+        [Desktop Entry]
+        Type=Application
+        Exec=plank
+        Hidden=false
+        NoDisplay=false
+        X-GNOME-Autostart-enabled=true
+        Name=Plank Dock
+        AUTOSTART
+
+        # 4. بناء أداة الترحيب Lumix Welcome Center
+        mkdir -p /usr/local/bin/
+        cat << 'APPINSTALLER' > /usr/local/bin/lumix-welcome
+        #!/bin/bash
+        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا وسيم في نظام LumixOS! جميع الحزم والواجهة والتطبيقات مثبتة ومجهزة بنجاح." --width=400
+        APPINSTALLER
+        chmod +x /usr/local/bin/lumix-welcome
+
+        cat << 'AUTOSTART_WELCOME' > /etc/skel/.config/autostart/lumix-welcome.desktop
+        [Desktop Entry]
+        Type=Application
+        Exec=/usr/local/bin/lumix-welcome
+        Hidden=false
+        NoDisplay=false
+        X-GNOME-Autostart-enabled=true
+        Name=Lumix Welcome Center
+        AUTOSTART_WELCOME
+
+        # 5. ضبط ثيم المظهر الأنيق (Arc-Dark) والأيقونات (Papirus-Dark)
+        mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
+        cat << 'XSETTINGS' > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
+        <?xml version="1.0" encoding="UTF-8"?>
+        <channel name="xsettings" version="1.0">
+          <property name="Net" type="empty">
+            <property name="ThemeName" type="string" value="Arc-Dark"/>
+            <property name="IconThemeName" type="string" value="Papirus-Dark"/>
+          </property>
+        </channel>
+        XSETTINGS
+
         apt-get clean
         EOF
 
@@ -45,47 +99,56 @@ jobs:
         sudo umount -l build/rootfs/proc
         sudo umount -l build/rootfs/sys
 
-    - name: Extract Kernel and Build Complete ISO Directory
+    - name: Extract Kernel and Build Complete ISO Directory Structure
       run: |
         mkdir -p build/iso/casper
         mkdir -p build/iso/boot/grub
         mkdir -p build/iso/isolinux
 
-        # 1. نسخ النواة
+        # 1. استخراج ملفات النواة والإقلاع ووضعها في مجلد casper
         K_FILE=$(sudo find build/rootfs/boot/ /boot/ -type f -name "vmlinuz*" 2>/dev/null | head -n 1)
         I_FILE=$(sudo find build/rootfs/boot/ /boot/ -type f -name "initrd*" 2>/dev/null | head -n 1)
 
         sudo cp -L "$K_FILE" build/iso/casper/vmlinuz
         sudo cp -L "$I_FILE" build/iso/casper/initrd.img
 
-        # 2. ضغط بيئة النظام
+        # 2. ضغط بيئة النظام لملف filesystem.squashfs
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
 
-        # 3. إعداد إقلاع ISOLINUX للمحاكيات
+        # 3. إعداد إقلاع BIOS المباشر (ISOLINUX) للمحاكيات والأجهزة القديمة
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
+        sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
 
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
-        default live
-        label live
-          menu label ^Start LumixOS Live
-          kernel /casper/vmlinuz
-          append initrd=/casper/initrd.img boot=casper quiet splash ---
+        DEFAULT lumix
+        PROMPT 0
+        TIMEOUT 30
+
+        LABEL lumix
+          KERNEL /casper/vmlinuz
+          APPEND initrd=/casper/initrd.img boot=casper quiet splash ---
         EOF
 
-        # 4. إعداد إقلاع GRUB
+        # 4. إعداد إقلاع UEFI والأجهزة الحديثة (GRUB)
         cat << 'EOF' | sudo tee build/iso/boot/grub/grub.cfg
         set default=0
         set timeout=5
 
-        menuentry "✦ Start LumixOS 1.0 (Live)" {
+        menuentry "✦ Start LumixOS 1.0 (Live & Real PC)" {
             linux /casper/vmlinuz boot=casper quiet splash ---
             initrd /casper/initrd.img
         }
         EOF
 
-    - name: Generate Hybrid ISO Image
+    - name: Generate Ultimate Hybrid Bootable ISO
       run: |
+        sudo xorriso -as mkisofs -r -V "LumixOS" -J -joliet-long \
+          -b isolinux/isolinux.bin -c isolinux/boot.cat \
+          -no-emul-boot -boot-load-size 4 -boot-info-table \
+          --eltorito-alt-boot \
+          -e boot/grub/efi.img -no-emul-boot \
+          -o LumixOS-1.0.iso build/iso || \
         sudo xorriso -as mkisofs -r -V "LumixOS" -J -joliet-long \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
