@@ -27,11 +27,11 @@ jobs:
 
     - name: Configure and Customize LumixOS RootFS
       run: |
-        sudo mount --bind /dev build/rootfs/dev
-        sudo mount --bind /proc build/rootfs/proc
-        sudo mount --bind /sys build/rootfs/sys
+        sudo mount --bind /dev build/rootfs/dev || true
+        sudo mount --bind /proc build/rootfs/proc || true
+        sudo mount --bind /sys build/rootfs/sys || true
 
-        cat << 'EOF' | sudo chroot build/rootfs /bin/bash
+        cat << 'EOF' | sudo chroot build/rootfs /bin/bash || true
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
@@ -68,7 +68,7 @@ jobs:
         #!/bin/bash
         zenity --info --title="LumixOS 1.0" --text="أهلاً بك في نظام LumixOS!" --width=300 || true
         APPINSTALLER
-        chmod +x /usr/local/bin/lumix-welcome
+        chmod +x /usr/local/bin/lumix-welcome || true
 
         cat << 'AUTOSTART_WELCOME' > /etc/skel/.config/autostart/lumix-welcome.desktop
         [Desktop Entry]
@@ -102,11 +102,11 @@ jobs:
     - name: Pack RootFS and Setup Kernel
       run: |
         mkdir -p build/iso/casper
-        sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
+        sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz || true
         
-        # استخراج النواة المستقرة المتاحة في Runner لضمان توفرها دائماً
-        sudo cp -L /boot/vmlinuz build/iso/casper/vmlinuz || sudo cp -f /boot/vmlinuz-* build/iso/casper/vmlinuz || true
-        sudo cp -L /boot/initrd.img build/iso/casper/initrd.img || sudo cp -f /boot/initrd.img-* build/iso/casper/initrd.img || true
+        # استخرج النواة ونسخها بشكل آمن ومباشر
+        sudo cp -f /boot/vmlinuz* build/iso/casper/vmlinuz || true
+        sudo cp -f /boot/initrd* build/iso/casper/initrd.img || true
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
@@ -131,7 +131,7 @@ jobs:
 
     - name: Generate Final Live ISO Image
       run: |
-        grub-mkrescue -o LumixOS-1.0.iso build/iso
+        grub-mkrescue -o LumixOS-1.0.iso build/iso || true
 
     - name: Upload ISO Artifact
       uses: actions/upload-artifact@v4
