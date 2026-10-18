@@ -35,8 +35,8 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت النواة المباشرة الرسمية والواجهة والميزات بالكامل
-        apt-get install -y \
+        # 1. تثبيت النواة والواجهة المكتملة
+        apt-get install -y --no-install-recommends \
           linux-image-generic casper xorg xfce4 xfce4-goodies lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
@@ -107,14 +107,17 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Directly Copy Kernel
+    - name: Pack RootFS and Inject Kernel
       run: |
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
 
-        # نسخ النواة المقتطعة مباشرة ومضمونة من داخل مجلد الـ rootfs
-        sudo cp -L build/rootfs/boot/vmlinuz-* build/iso/casper/vmlinuz
-        sudo cp -L build/rootfs/boot/initrd.img-* build/iso/casper/initrd.img
+        # استخراج اسم ملف النواة الفعلي ونسخه بأمان مع تتبع الروابط الرمزية (-L)
+        KERN_PATH=$(sudo find build/rootfs/boot/ /boot/ -type f -name "vmlinuz*" | head -n 1)
+        INIT_PATH=$(sudo find build/rootfs/boot/ /boot/ -type f -name "initrd*" | head -n 1)
+
+        sudo cp -L "$KERN_PATH" build/iso/casper/vmlinuz
+        sudo cp -L "$INIT_PATH" build/iso/casper/initrd.img
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
