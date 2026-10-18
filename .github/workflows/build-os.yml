@@ -18,7 +18,7 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools \
-          isolinux syslinux-utils ubuntu-keyring wget zenity
+          isolinux syslinux-utils ubuntu-keyring wget zenity binutils
 
     - name: Create Base RootFS
       run: |
@@ -35,9 +35,9 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت النواة المباشرة والواجهة كاملة
+        # 1. تثبيت الواجهة المكتملة والأدوات
         apt-get install -y \
-          linux-image-generic casper xorg xfce4 xfce4-goodies lightdm \
+          casper xorg xfce4 xfce4-goodies lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
@@ -107,25 +107,25 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Inject Kernel
+    - name: Pack RootFS and Force Download Real Kernel
       run: |
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
 
-        # استخدام أمر النسخ المرن للـ Kernel والـ Initrd من المجلد المجهز مباشرة
-        for f in build/rootfs/boot/vmlinuz-*; do
-          if [ -f "$f" ]; then
-            sudo cp -L "$f" build/iso/casper/vmlinuz
-            break
-          fi
+        # تنزيل واستخراج النواة الرسمية الجاهزة مباشرة إلى مجلد casper
+        mkdir -p /tmp/kdownload
+        cd /tmp/kdownload
+        apt-get download linux-image-generic initramfs-tools || true
+        apt-get download linux-image-$(uname -r) || apt-get download linux-image-5.15.0-88-generic || true
+        
+        # استخراج ملفات deb لتوفير vmlinuz و initrd.img
+        for deb in *.deb; do
+          dpkg-deb -x "$deb" . || true
         done
 
-        for f in build/rootfs/boot/initrd.img-*; do
-          if [ -f "$f" ]; then
-            sudo cp -L "$f" build/iso/casper/initrd.img
-            break
-          fi
-        done
+        # نسخ الملفات مباشرة للـ ISO
+        sudo cp -L $(find . /boot -name "vmlinuz*" -type f 2>/dev/null | head -n 1) build/iso/casper/vmlinuz
+        sudo cp -L $(find . /boot -name "initrd*" -type f 2>/dev/null | head -n 1) build/iso/casper/initrd.img
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
