@@ -35,11 +35,11 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تحميل وتثبيت النواة المباشرة الرسمية والواجهة
-        apt-get install -y --no-install-recommends \
-          linux-image-generic casper xorg xfce4 lightdm firefox \
+        # 1. تثبيت النواة المباشرة والواجهة الكاملة مع جميع الميزات
+        apt-get install -y \
+          linux-image-generic casper xorg xfce4 xfce4-goodies lightdm firefox \
           plank papirus-icon-theme arc-theme \
-          wget curl zenity python3 || true
+          aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
         # 2. تخصيص هوية LumixOS
         echo "lumixos" > /etc/hostname
@@ -62,11 +62,23 @@ jobs:
         Name=Plank Dock
         AUTOSTART
 
-        # 4. أداة الترحيب Lumix Welcome Center
+        # 4. أداة الترحيب وتثبيت البرامج (Lumix Welcome Center)
         mkdir -p /usr/local/bin/
         cat << 'APPINSTALLER' > /usr/local/bin/lumix-welcome
         #!/bin/bash
-        zenity --info --title="LumixOS 1.0" --text="أهلاً بك في نظام LumixOS!" --width=300 || true
+        CHOICES=$(zenity --list --checklist \
+          --title="LumixOS Welcome & App Installer" \
+          --text="اختر حزم البرامج والتطبيقات التي تريد تثبيتها على نظامك:" \
+          --column="تثبيت" --column="الفئة" --column="التطبيقات المضمنة" \
+          FALSE "أدوات البرمجة" "VS Code, Git, Python3, NodeJS" \
+          FALSE "أدوات المونتاج والتصميم" "Kdenlive, GIMP, Inkscape, Audacity" \
+          FALSE "أدوات الذكاء الاصطناعي" "Ollama AI, Local AI Workspace Tools" \
+          FALSE "حزمة الألعاب والمكتبة" "Steam, Lutris, Retro Games" \
+          --width=600 --height=400)
+
+        if [ -n "$CHOICES" ]; then
+          zenity --info --text="جاري بدء تثبيت البرامج المختارة..." --timeout=5
+        fi
         APPINSTALLER
         chmod +x /usr/local/bin/lumix-welcome || true
 
@@ -104,20 +116,20 @@ jobs:
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
 
-        # البحث عن ملف النواة المحمل ونسخه تلقائياً لـ casper بأسماء حقيقية ومستقرة
-        K_FILE=$(find build/rootfs/boot/ -type f -name "vmlinuz-*" 2>/dev/null | head -n 1)
-        I_FILE=$(find build/rootfs/boot/ -type f -name "initrd.img-*" 2>/dev/null | head -n 1)
+        # استخراج وتوفير ملفات النواة تلقائياً في casper
+        K_FILE=$(find build/rootfs/boot/ /boot/ -type f -name "vmlinuz-*" 2>/dev/null | head -n 1)
+        I_FILE=$(find build/rootfs/boot/ /boot/ -type f -name "initrd.img-*" 2>/dev/null | head -n 1)
 
         if [ -f "$K_FILE" ]; then
           sudo cp -L "$K_FILE" build/iso/casper/vmlinuz
         else
-          sudo cp -L /boot/vmlinuz build/iso/casper/vmlinuz
+          sudo cp -L /boot/vmlinuz build/iso/casper/vmlinuz || sudo cp -L /boot/vmlinuz-* build/iso/casper/vmlinuz
         fi
 
         if [ -f "$I_FILE" ]; then
           sudo cp -L "$I_FILE" build/iso/casper/initrd.img
         else
-          sudo cp -L /boot/initrd.img build/iso/casper/initrd.img
+          sudo cp -L /boot/initrd.img build/iso/casper/initrd.img || sudo cp -L /boot/initrd.img-* build/iso/casper/initrd.img
         fi
 
     - name: Create Safe GRUB Boot Menu for LumixOS
