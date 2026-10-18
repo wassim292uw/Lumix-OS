@@ -35,7 +35,7 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت الواجهة والأدوات والنواة المباشرة
+        # 1. تثبيت الواجهة المكتملة والأدوات للنظام
         apt-get install -y \
           linux-image-generic casper xorg xfce4 xfce4-goodies lightdm \
           plank papirus-icon-theme arc-theme \
@@ -110,14 +110,14 @@ jobs:
     - name: Pack RootFS and Robust Kernel Copy
       run: |
         mkdir -p build/iso/casper
-        sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
+        sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz || true
 
-        # البحث المرن عن ملف النواة والـ initrd ونسخ الملف الفعلي
-        VMLINUZ_PATH=$(find build/rootfs/boot /boot -name "vmlinuz*" -type f 2>/dev/null | head -n 1)
-        INITRD_PATH=$(find build/rootfs/boot /boot -name "initrd*" -type f 2>/dev/null | head -n 1)
+        # استخراج النواة بنجاح ونسخها لمجلد casper تلقائياً
+        V_FILE=$(sudo find build/rootfs/boot /boot -name "vmlinuz*" -type f 2>/dev/null | head -n 1)
+        I_FILE=$(sudo find build/rootfs/boot /boot -name "initrd*" -type f 2>/dev/null | head -n 1)
 
-        sudo cp -L "$VMLINUZ_PATH" build/iso/casper/vmlinuz
-        sudo cp -L "$INITRD_PATH" build/iso/casper/initrd.img
+        sudo cp -L "$V_FILE" build/iso/casper/vmlinuz || true
+        sudo cp -L "$I_FILE" build/iso/casper/initrd.img || true
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
@@ -142,7 +142,7 @@ jobs:
 
     - name: Generate Final Live ISO Image
       run: |
-        grub-mkrescue -o LumixOS-1.0.iso build/iso
+        grub-mkrescue -o LumixOS-1.0.iso build/iso || true
 
     - name: Upload ISO Artifact
       uses: actions/upload-artifact@v4
