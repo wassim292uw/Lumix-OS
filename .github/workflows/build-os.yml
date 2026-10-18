@@ -35,7 +35,7 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت النواة المباشرة وتجهيز النظام
+        # 1. تحميل وتثبيت النواة المباشرة الرسمية والواجهة
         apt-get install -y --no-install-recommends \
           linux-image-generic casper xorg xfce4 lightdm firefox \
           plank papirus-icon-theme arc-theme \
@@ -99,17 +99,26 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Strictly Extract Kernel
+    - name: Pack RootFS and Auto-Inject Kernel
       run: |
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
 
-        # استخراج ملف النواة الحقيقي مع تفعيل خاصية تتبع الروابط الرمزية (-L)
-        RAW_VMLINUZ=$(find build/rootfs/boot/ /boot/ -type f -name "vmlinuz*" 2>/dev/null | head -n 1)
-        RAW_INITRD=$(find build/rootfs/boot/ /boot/ -type f -name "initrd*" 2>/dev/null | head -n 1)
+        # البحث عن ملف النواة المحمل ونسخه تلقائياً لـ casper بأسماء حقيقية ومستقرة
+        K_FILE=$(find build/rootfs/boot/ -type f -name "vmlinuz-*" 2>/dev/null | head -n 1)
+        I_FILE=$(find build/rootfs/boot/ -type f -name "initrd.img-*" 2>/dev/null | head -n 1)
 
-        sudo cp -L "$RAW_VMLINUZ" build/iso/casper/vmlinuz
-        sudo cp -L "$RAW_INITRD" build/iso/casper/initrd.img
+        if [ -f "$K_FILE" ]; then
+          sudo cp -L "$K_FILE" build/iso/casper/vmlinuz
+        else
+          sudo cp -L /boot/vmlinuz build/iso/casper/vmlinuz
+        fi
+
+        if [ -f "$I_FILE" ]; then
+          sudo cp -L "$I_FILE" build/iso/casper/initrd.img
+        else
+          sudo cp -L /boot/initrd.img build/iso/casper/initrd.img
+        fi
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
