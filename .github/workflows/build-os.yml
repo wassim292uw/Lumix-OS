@@ -107,14 +107,17 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Strictly Copy Kernel
+    - name: Pack RootFS and Robust Kernel Copy
       run: |
         mkdir -p build/iso/casper
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
 
-        # ضمان استخراج ملف النواة ونسخه الحقيقي لـ casper
-        sudo cp -L /boot/vmlinuz build/iso/casper/vmlinuz
-        sudo cp -L /boot/initrd.img build/iso/casper/initrd.img
+        # البحث المرن عن ملف النواة والـ initrd ونسخ الملف الفعلي
+        VMLINUZ_PATH=$(find build/rootfs/boot /boot -name "vmlinuz*" -type f 2>/dev/null | head -n 1)
+        INITRD_PATH=$(find build/rootfs/boot /boot -name "initrd*" -type f 2>/dev/null | head -n 1)
+
+        sudo cp -L "$VMLINUZ_PATH" build/iso/casper/vmlinuz
+        sudo cp -L "$INITRD_PATH" build/iso/casper/initrd.img
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
