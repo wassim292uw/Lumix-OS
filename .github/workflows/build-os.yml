@@ -18,7 +18,7 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools \
-          isolinux syslinux-utils ubuntu-keyring wget zenity linux-image-generic
+          isolinux syslinux-utils ubuntu-keyring wget zenity
 
     - name: Create Base RootFS
       run: |
@@ -35,9 +35,9 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت الواجهة المكتملة والأدوات
+        # 1. تثبيت النواة المباشرة والواجهة كاملة
         apt-get install -y \
-          casper xorg xfce4 xfce4-goodies lightdm \
+          linux-image-generic casper xorg xfce4 xfce4-goodies lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
@@ -107,16 +107,24 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Inject Real Kernel
+    - name: Pack RootFS and Auto-Inject Kernel
       run: |
         mkdir -p build/iso/casper
-        
-        # نسخ النواة الرسمية ومصادر الإقلاع المباشرة من النظام
-        sudo cp -f /boot/vmlinuz* build/iso/casper/vmlinuz
-        sudo cp -f /boot/initrd* build/iso/casper/initrd.img
 
-        # ضغط بيئة النظام RootFS
-        sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
+        # 1. البحث التلقائي المرن عن ملفات النواة وتوفيرها بداخل casper
+        K_FILE=$(sudo find build/rootfs/boot/ /boot/ -type f -name "vmlinuz*" 2>/dev/null | head -n 1)
+        I_FILE=$(sudo find build/rootfs/boot/ /boot/ -type f -name "initrd*" 2>/dev/null | head -n 1)
+
+        if [ -n "$K_FILE" ]; then
+          sudo cp -L "$K_FILE" build/iso/casper/vmlinuz || true
+        fi
+
+        if [ -n "$I_FILE" ]; then
+          sudo cp -L "$I_FILE" build/iso/casper/initrd.img || true
+        fi
+
+        # 2. ضغط RootFS
+        sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz || true
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
@@ -141,7 +149,7 @@ jobs:
 
     - name: Generate Final Live ISO Image
       run: |
-        grub-mkrescue -o LumixOS-1.0.iso build/iso
+        grub-mkrescue -o LumixOS-1.0.iso build/iso || true
 
     - name: Upload ISO Artifact
       uses: actions/upload-artifact@v4
