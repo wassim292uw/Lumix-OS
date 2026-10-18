@@ -13,7 +13,7 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Install Building Tools
+    - name: Install All Essential ISO Building Tools
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -35,7 +35,6 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # تثبيت النواة والحزم الأساسية بدون إهمال
         apt-get install -y linux-image-generic casper xorg xfce4 xfce4-goodies lightdm plank papirus-icon-theme arc-theme firefox git wget curl zenity
 
         echo "lumixos" > /etc/hostname
@@ -46,22 +45,35 @@ jobs:
         sudo umount -l build/rootfs/proc
         sudo umount -l build/rootfs/sys
 
-    - name: Extract Kernel and Build ISO Directory
+    - name: Extract Kernel and Build Complete ISO Directory
       run: |
         mkdir -p build/iso/casper
         mkdir -p build/iso/boot/grub
+        mkdir -p build/iso/isolinux
 
-        # 1. البحث عن ملفات النواة داخل rootfs أو السيرفر ونسخها إجبارياً إلى casper
+        # 1. نسخ النواة
         K_FILE=$(sudo find build/rootfs/boot/ /boot/ -type f -name "vmlinuz*" 2>/dev/null | head -n 1)
         I_FILE=$(sudo find build/rootfs/boot/ /boot/ -type f -name "initrd*" 2>/dev/null | head -n 1)
 
         sudo cp -L "$K_FILE" build/iso/casper/vmlinuz
         sudo cp -L "$I_FILE" build/iso/casper/initrd.img
 
-        # 2. ضغط بيئة النظام لملف filesystem.squashfs
+        # 2. ضغط بيئة النظام
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
 
-        # 3. إنشاء ملف إعدادات الإقلاع GRUB
+        # 3. إعداد إقلاع ISOLINUX للمحاكيات
+        sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
+        sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
+
+        cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
+        default live
+        label live
+          menu label ^Start LumixOS Live
+          kernel /casper/vmlinuz
+          append initrd=/casper/initrd.img boot=casper quiet splash ---
+        EOF
+
+        # 4. إعداد إقلاع GRUB
         cat << 'EOF' | sudo tee build/iso/boot/grub/grub.cfg
         set default=0
         set timeout=5
@@ -72,9 +84,11 @@ jobs:
         }
         EOF
 
-    - name: Generate Final ISO Image
+    - name: Generate Hybrid ISO Image
       run: |
         sudo xorriso -as mkisofs -r -V "LumixOS" -J -joliet-long \
+          -b isolinux/isolinux.bin -c isolinux/boot.cat \
+          -no-emul-boot -boot-load-size 4 -boot-info-table \
           -o LumixOS-1.0.iso build/iso
 
     - name: Upload Completed LumixOS ISO Artifact
