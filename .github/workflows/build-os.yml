@@ -18,7 +18,7 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools \
-          isolinux syslinux-utils ubuntu-keyring wget zenity
+          isolinux syslinux-utils ubuntu-keyring wget zenity linux-image-generic
 
     - name: Create Base RootFS
       run: |
@@ -35,9 +35,9 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت النواة المباشرة والواجهة والأدوات الكاملة
-        apt-get install -y --no-install-recommends \
-          linux-image-generic casper xorg xfce4 xfce4-goodies lightdm \
+        # 1. تثبيت الواجهة المكتملة والأدوات
+        apt-get install -y \
+          casper xorg xfce4 xfce4-goodies lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
@@ -107,15 +107,15 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Extract Kernel Directly
+    - name: Pack RootFS and Inject Real Kernel
       run: |
         mkdir -p build/iso/casper
         
-        # استخراج النواة المباشرة من مجلد rootfs المجهز قبل التجميع
-        sudo cp -L build/rootfs/boot/vmlinuz* build/iso/casper/vmlinuz || sudo cp -L /boot/vmlinuz build/iso/casper/vmlinuz
-        sudo cp -L build/rootfs/boot/initrd.img* build/iso/casper/initrd.img || sudo cp -L /boot/initrd.img build/iso/casper/initrd.img
+        # نسخ النواة الرسمية ومصادر الإقلاع المباشرة من النظام
+        sudo cp -f /boot/vmlinuz* build/iso/casper/vmlinuz
+        sudo cp -f /boot/initrd* build/iso/casper/initrd.img
 
-        # ضغط مجلد RootFS إلى ملف SquashFS
+        # ضغط بيئة النظام RootFS
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
 
     - name: Create Safe GRUB Boot Menu for LumixOS
