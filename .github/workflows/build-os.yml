@@ -35,9 +35,9 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت الواجهة المكتملة والأدوات
+        # 1. تثبيت الواجهة والأدوات والنواة المباشرة
         apt-get install -y \
-          casper xorg xfce4 xfce4-goodies lightdm \
+          linux-image-generic casper xorg xfce4 xfce4-goodies lightdm \
           plank papirus-icon-theme arc-theme \
           aisleriot gnome-mines gnome-sudoku pingus wget curl zenity python3 || true
 
@@ -107,14 +107,14 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Setup Kernel
+    - name: Pack RootFS and Strictly Copy Kernel
       run: |
         mkdir -p build/iso/casper
-        sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz || true
-        
-        # استخراج النواة الرسمية الجاهزة والمستقرة مباشرة إلى مجلد casper
-        sudo cp -f /boot/vmlinuz* build/iso/casper/vmlinuz || true
-        sudo cp -f /boot/initrd* build/iso/casper/initrd.img || true
+        sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
+
+        # ضمان استخراج ملف النواة ونسخه الحقيقي لـ casper
+        sudo cp -L /boot/vmlinuz build/iso/casper/vmlinuz
+        sudo cp -L /boot/initrd.img build/iso/casper/initrd.img
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
@@ -139,7 +139,7 @@ jobs:
 
     - name: Generate Final Live ISO Image
       run: |
-        grub-mkrescue -o LumixOS-1.0.iso build/iso || true
+        grub-mkrescue -o LumixOS-1.0.iso build/iso
 
     - name: Upload ISO Artifact
       uses: actions/upload-artifact@v4
