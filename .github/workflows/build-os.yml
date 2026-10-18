@@ -35,9 +35,9 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت الواجهة المكتملة وشريط Plank والتطبيقات
+        # 1. تثبيت النواة المباشرة الرسمية والواجهة المكتملة والبرامج
         apt-get install -y --no-install-recommends \
-          casper xorg xfce4 xfce4-goodies lightdm \
+          linux-image-generic casper xorg xfce4 xfce4-goodies lightdm \
           plank papirus-icon-theme arc-theme firefox git wget curl zenity \
           aisleriot gnome-mines gnome-sudoku pingus python3 || true
 
@@ -104,9 +104,21 @@ jobs:
         mkdir -p build/iso/casper
         mkdir -p build/iso/boot/grub
 
-        # استخراج النواة المباشرة وضمان نقلها دائماً
-        sudo cp -f /boot/vmlinuz* build/iso/casper/vmlinuz || true
-        sudo cp -f /boot/initrd* build/iso/casper/initrd.img || true
+        # استخراج النواة المباشرة المضمنة من داخل rootfs بالمسار الصحيح والدقيق
+        KERNEL_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
+        INITRD_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd.img*" | head -n 1)
+
+        if [ -n "$KERNEL_FILE" ]; then
+          sudo cp -L "$KERNEL_FILE" build/iso/casper/vmlinuz
+        else
+          sudo cp -L /boot/vmlinuz* build/iso/casper/vmlinuz || true
+        fi
+
+        if [ -n "$INITRD_FILE" ]; then
+          sudo cp -L "$INITRD_FILE" build/iso/casper/initrd.img
+        else
+          sudo cp -L /boot/initrd* build/iso/casper/initrd.img || true
+        fi
 
         # ضغط بيئة النظام لملف filesystem.squashfs
         sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz || true
@@ -124,7 +136,6 @@ jobs:
 
     - name: Generate Final Live ISO Image
       run: |
-        # إنشاء ملف ה-ISO المباشر بمرونة كاملة
         sudo xorriso -as mkisofs -r -V "LumixOS" -J -joliet-long \
           -o LumixOS-1.0.iso build/iso || \
         sudo genisoimage -r -J -o LumixOS-1.0.iso build/iso || true
