@@ -18,7 +18,7 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools \
-          isolinux syslinux-utils ubuntu-keyring wget zenity linux-image-generic
+          isolinux syslinux-utils ubuntu-keyring wget zenity
 
     - name: Create Base RootFS
       run: |
@@ -35,9 +35,9 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update --fix-missing || true
 
-        # 1. تثبيت الواجهة والأدوات الأساسية
+        # 1. تثبيت النواة المباشرة وتجهيز النظام
         apt-get install -y --no-install-recommends \
-          casper xorg xfce4 lightdm firefox \
+          linux-image-generic casper xorg xfce4 lightdm firefox \
           plank papirus-icon-theme arc-theme \
           wget curl zenity python3 || true
 
@@ -99,14 +99,17 @@ jobs:
         sudo umount -l build/rootfs/proc || true
         sudo umount -l build/rootfs/sys || true
 
-    - name: Pack RootFS and Setup Kernel
+    - name: Pack RootFS and Strictly Extract Kernel
       run: |
         mkdir -p build/iso/casper
-        sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz || true
-        
-        # استخرج النواة ونسخها بشكل آمن ومباشر
-        sudo cp -f /boot/vmlinuz* build/iso/casper/vmlinuz || true
-        sudo cp -f /boot/initrd* build/iso/casper/initrd.img || true
+        sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz
+
+        # استخراج ملف النواة الحقيقي مع تفعيل خاصية تتبع الروابط الرمزية (-L)
+        RAW_VMLINUZ=$(find build/rootfs/boot/ /boot/ -type f -name "vmlinuz*" 2>/dev/null | head -n 1)
+        RAW_INITRD=$(find build/rootfs/boot/ /boot/ -type f -name "initrd*" 2>/dev/null | head -n 1)
+
+        sudo cp -L "$RAW_VMLINUZ" build/iso/casper/vmlinuz
+        sudo cp -L "$RAW_INITRD" build/iso/casper/initrd.img
 
     - name: Create Safe GRUB Boot Menu for LumixOS
       run: |
@@ -131,7 +134,7 @@ jobs:
 
     - name: Generate Final Live ISO Image
       run: |
-        grub-mkrescue -o LumixOS-1.0.iso build/iso || true
+        grub-mkrescue -o LumixOS-1.0.iso build/iso
 
     - name: Upload ISO Artifact
       uses: actions/upload-artifact@v4
