@@ -13,7 +13,7 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Free Disk Space and Tools Setup
+    - name: Setup ISO Building Tools
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -25,7 +25,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install System Packages and Create User Wassim
+    - name: Install Desktop, Tools and Setup User Wassim
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -35,18 +35,18 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة والواجهة الخفيفة
+        # 1. تثبيت النواة المباشرة والواجهة الرسمية
         apt-get install -y --no-install-recommends \
           linux-image-686 live-boot xorg xfce4 xfce4-terminal lightdm sudo \
           plank papirus-icon-theme arc-theme firefox-esr zenity python3 \
           aisleriot gnome-mines gnome-sudoku
 
-        # 2. إنشاء المستخدم الخاص باسم (وسيم) وتفعيله كمسؤول
+        # 2. إنشاء مستخدم باسم وسيم وتفعيله كمسؤول
         useradd -m -s /bin/bash -g sudo wassim
         echo "wassim:1234" | chpasswd
         echo "wassim ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. هوية النظام
+        # 3. ضبط هوية LumixOS
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -55,7 +55,7 @@ jobs:
         PRETTY_NAME="LumixOS 1.0"
         RELEASE
 
-        # 4. التشغيل التلقائي لشريط Plank لمستخدم وسيم
+        # 4. إعداد التشغيل التلقائي لشريط Plank
         mkdir -p /home/wassim/.config/autostart/
         mkdir -p /etc/skel/.config/autostart/
         cat << 'AUTOSTART' > /home/wassim/.config/autostart/plank.desktop
@@ -69,7 +69,7 @@ jobs:
         AUTOSTART
         cp /home/wassim/.config/autostart/plank.desktop /etc/skel/.config/autostart/
 
-        # 5. أداة الترحيب Lumix Welcome باسم وسيم
+        # 5. أداة الترحيب المخصصة باسم وسيم
         mkdir -p /usr/local/bin/
         cat << 'APP' > /usr/local/bin/lumix-welcome
         #!/bin/bash
@@ -88,7 +88,7 @@ jobs:
         AUTOSTART_WELCOME
         cp /home/wassim/.config/autostart/lumix-welcome.desktop /etc/skel/.config/autostart/
 
-        # 6. ضبط ثيم Arc-Dark و Papirus-Dark لمستخدم وسيم
+        # 6. ضبط مظهر Arc-Dark وأيقونات Papirus-Dark
         mkdir -p /home/wassim/.config/xfce4/xfconf/xfce-perchannel-xml/
         mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
         cat << 'XSETTINGS' > /home/wassim/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
@@ -102,10 +102,10 @@ jobs:
         XSETTINGS
         cp /home/wassim/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
 
-        # إصلاح ملكية مجلد المستخدم وسيم
+        # تصحيح ملكية الملفات للمستخدم وسيم
         chown -R wassim:sudo /home/wassim
 
-        # 7. الدخول التلقائي بالنظام باسم المستخدم wassim
+        # 7. الدخول التلقائي بالنظام باسم wassim
         mkdir -p /etc/lightdm/lightdm.conf.d/
         cat << 'LIGHTDM' > /etc/lightdm/lightdm.conf.d/autologin.conf
         [Seat:*]
@@ -113,8 +113,9 @@ jobs:
         autologin-user-timeout=0
         LIGHTDM
 
+        # تنظيف الملفات المؤقتة لتفريغ الذاكرة
         apt-get clean
-        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/*
         EOF
 
         sudo umount -l build/rootfs/dev
@@ -132,8 +133,8 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط فائق السرعة يضمن عدم استهلاك الذاكرة نهائياً
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
+        # ضغط خفيف وحاضن خالي من أي ضغط شديد على الذاكرة
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 64k -processors 1
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
@@ -149,7 +150,7 @@ jobs:
           APPEND initrd=/live/initrd.img boot=live username=wassim quiet splash ---
         EOF
 
-    - name: Generate Bootable ISO
+    - name: Generate ISO Image
       run: |
         genisoimage -logical-core-segment -cache-inodes -J -l -r \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
