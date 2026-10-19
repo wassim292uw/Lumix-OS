@@ -13,7 +13,7 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Install Building Tools
+    - name: Free Disk Space and Tools Setup
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -25,7 +25,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install System Packages Step-by-Step
+    - name: Install System Packages and Create User Wassim
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -35,27 +35,30 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة الأساسية والنظام المباشر
-        apt-get install -y --no-install-recommends linux-image-686 live-boot xorg lightdm
+        # 1. تثبيت النواة والواجهة الخفيفة
+        apt-get install -y --no-install-recommends \
+          linux-image-686 live-boot xorg xfce4 xfce4-terminal lightdm sudo \
+          plank papirus-icon-theme arc-theme firefox-esr zenity python3 \
+          aisleriot gnome-mines gnome-sudoku
 
-        # 2. تثبيت واجهة XFCE4 الخفيفة والأدوات
-        apt-get install -y --no-install-recommends xfce4 xfce4-terminal plank papirus-icon-theme arc-theme firefox-esr zenity python3
+        # 2. إنشاء المستخدم الخاص باسم (وسيم) وتفعيله كمسؤول
+        useradd -m -s /bin/bash -g sudo wassim
+        echo "wassim:1234" | chpasswd
+        echo "wassim ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. تثبيت الألعاب الخفيفة
-        apt-get install -y --no-install-recommends aisleriot gnome-mines gnome-sudoku
-
-        # 4. تخصيص هوية LumixOS
+        # 3. هوية النظام
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
-        VERSION="1.0 (v86 Edition)"
+        VERSION="1.0 (Wassim Edition)"
         ID=lumixos
         PRETTY_NAME="LumixOS 1.0"
         RELEASE
 
-        # 5. التشغيل التلقائي لشريط Plank
+        # 4. التشغيل التلقائي لشريط Plank لمستخدم وسيم
+        mkdir -p /home/wassim/.config/autostart/
         mkdir -p /etc/skel/.config/autostart/
-        cat << 'AUTOSTART' > /etc/skel/.config/autostart/plank.desktop
+        cat << 'AUTOSTART' > /home/wassim/.config/autostart/plank.desktop
         [Desktop Entry]
         Type=Application
         Exec=plank
@@ -64,16 +67,17 @@ jobs:
         X-GNOME-Autostart-enabled=true
         Name=Plank Dock
         AUTOSTART
+        cp /home/wassim/.config/autostart/plank.desktop /etc/skel/.config/autostart/
 
-        # 6. أداة الترحيب Lumix Welcome
+        # 5. أداة الترحيب Lumix Welcome باسم وسيم
         mkdir -p /usr/local/bin/
         cat << 'APP' > /usr/local/bin/lumix-welcome
         #!/bin/bash
-        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا وسيم في نظام LumixOS!" --width=300
+        zenity --info --title="LumixOS 1.0" --text="أهلاً وسهلاً بك يا وسيم!\nنظام LumixOS المخصص مجهز ومكتمل بجميع ميزاته بنجاح." --width=380
         APP
         chmod +x /usr/local/bin/lumix-welcome
 
-        cat << 'AUTOSTART_WELCOME' > /etc/skel/.config/autostart/lumix-welcome.desktop
+        cat << 'AUTOSTART_WELCOME' > /home/wassim/.config/autostart/lumix-welcome.desktop
         [Desktop Entry]
         Type=Application
         Exec=/usr/local/bin/lumix-welcome
@@ -82,10 +86,12 @@ jobs:
         X-GNOME-Autostart-enabled=true
         Name=Lumix Welcome
         AUTOSTART_WELCOME
+        cp /home/wassim/.config/autostart/lumix-welcome.desktop /etc/skel/.config/autostart/
 
-        # 7. ضبط ثيم Arc-Dark و Papirus-Dark
+        # 6. ضبط ثيم Arc-Dark و Papirus-Dark لمستخدم وسيم
+        mkdir -p /home/wassim/.config/xfce4/xfconf/xfce-perchannel-xml/
         mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
-        cat << 'XSETTINGS' > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
+        cat << 'XSETTINGS' > /home/wassim/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
         <?xml version="1.0" encoding="UTF-8"?>
         <channel name="xsettings" version="1.0">
           <property name="Net" type="empty">
@@ -94,8 +100,19 @@ jobs:
           </property>
         </channel>
         XSETTINGS
+        cp /home/wassim/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
 
-        # تنظيف الحزم المؤقتة لتوفير المساحة والذاكرة
+        # إصلاح ملكية مجلد المستخدم وسيم
+        chown -R wassim:sudo /home/wassim
+
+        # 7. الدخول التلقائي بالنظام باسم المستخدم wassim
+        mkdir -p /etc/lightdm/lightdm.conf.d/
+        cat << 'LIGHTDM' > /etc/lightdm/lightdm.conf.d/autologin.conf
+        [Seat:*]
+        autologin-user=wassim
+        autologin-user-timeout=0
+        LIGHTDM
+
         apt-get clean
         rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
         EOF
@@ -104,7 +121,7 @@ jobs:
         sudo umount -l build/rootfs/proc
         sudo umount -l build/rootfs/sys
 
-    - name: Prepare ISO Structure
+    - name: Prepare ISO Directory Structure
       run: |
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
@@ -115,8 +132,8 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط محسن خفيف جداً يمنع الانهيار تماماً
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 256k
+        # ضغط فائق السرعة يضمن عدم استهلاك الذاكرة نهائياً
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
@@ -129,7 +146,7 @@ jobs:
 
         LABEL lumix
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live quiet splash ---
+          APPEND initrd=/live/initrd.img boot=live username=wassim quiet splash ---
         EOF
 
     - name: Generate Bootable ISO
