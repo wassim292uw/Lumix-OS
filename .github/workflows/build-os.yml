@@ -1,4 +1,4 @@
-name: Build LumixOS ISO (Lite & Fast)
+name: Build LumixOS ISO (Lite & Stable)
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Install ISO Building Tools
+    - name: Install Building Tools
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -25,7 +25,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install Desktop Features and Apps
+    - name: Install Desktop, Features and Customizations
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -35,12 +35,13 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة المباشرة الرسمية والواجهة
+        # 1. تثبيت الواجهة والتطبيقات والألعاب
         apt-get install -y --no-install-recommends \
           linux-image-686 live-boot xorg xfce4 xfce4-terminal \
-          plank papirus-icon-theme arc-theme firefox-esr wget curl zenity python3
+          plank papirus-icon-theme arc-theme firefox-esr wget curl zenity python3 \
+          aisleriot gnome-mines gnome-sudoku
 
-        # 2. تخصيص هوية النظام
+        # 2. هوية النظام
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -65,7 +66,7 @@ jobs:
         mkdir -p /usr/local/bin/
         cat << 'APP' > /usr/local/bin/lumix-welcome
         #!/bin/bash
-        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا وسيم في LumixOS!" --width=300
+        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا وسيم في نظام LumixOS!" --width=300
         APP
         chmod +x /usr/local/bin/lumix-welcome
 
@@ -79,7 +80,7 @@ jobs:
         Name=Lumix Welcome
         AUTOSTART_WELCOME
 
-        # 5. الثيمات
+        # 5. ضبط المظهر
         mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
         cat << 'XSETTINGS' > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
         <?xml version="1.0" encoding="UTF-8"?>
@@ -104,17 +105,15 @@ jobs:
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
 
-        # استخراج النواة إلى المجلد المباشر الرسمي live/
         K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
         I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
 
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط النظام بجودة عالية وصغيرة الحجم
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp xz
+        # ضغط محمي ومباشر لتفادي خطأ exit code 13
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 1024k
 
-        # إعداد ملفات ISOLINUX الصارمة والمباشرة
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
         sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
@@ -129,14 +128,14 @@ jobs:
           APPEND initrd=/live/initrd.img boot=live quiet splash ---
         EOF
 
-    - name: Build Final Clean ISO
+    - name: Build ISO
       run: |
         genisoimage -logical-core-segment -cache-inodes -J -l -r \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
           -output LumixOS-1.0.iso build/iso
 
-    - name: Upload Completed ISO
+    - name: Upload ISO Artifact
       uses: actions/upload-artifact@v4
       with:
         name: LumixOS-1.0-ISO
