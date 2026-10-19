@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout Repository
@@ -18,7 +20,7 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso genisoimage isolinux syslinux-common syslinux-utils \
-          zenity curl git
+          zenity curl git gh
 
     - name: Create Minimal Base RootFS (Debian Bookworm i386)
       run: |
@@ -65,7 +67,7 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. إعداد التشغيل التلقائي للشريط والأداة الترحيبية
+        # 4. إعداد التشغيل التلقائي لشريط Plank وأداة الاسم
         mkdir -p /home/user/.config/openbox/
         mkdir -p /etc/skel/.config/openbox/
         cat << 'AUTO' > /home/user/.config/openbox/autostart
@@ -76,7 +78,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 5. الدخول التلقائي المباشر (No Password)
+        # 5. الدخول التلقائي المباشر (No Password) عبر nodm
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -91,7 +93,7 @@ jobs:
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
-        VERSION="1.0 (v86 Ready)"
+        VERSION="1.0"
         ID=lumixos
         PRETTY_NAME="LumixOS 1.0"
         RELEASE
@@ -104,7 +106,7 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Prepare ISO Directory Structure
+    - name: Prepare ISO Directory
       run: |
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
@@ -122,7 +124,7 @@ jobs:
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
         sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
 
-        # إعدادات إقلاع مخصصة لتخطي التعليق في v86
+        # تهيئة الإقلاع لـ v86 بشكل كامل ومباشر
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
@@ -135,15 +137,16 @@ jobs:
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Universal Bootable ISO
+    - name: Generate ISO File
       run: |
         sudo genisoimage -R -J \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -output LumixOS-1.0-v86.iso build/iso
+          -output LumixOS-1.0.iso build/iso
 
-    - name: Upload ISO Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: LumixOS-1.0-v86-ISO
-        path: LumixOS-1.0-v86.iso
+    - name: Release ISO Direct Download File
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG_NAME="v1.0-${{ github.run_number }}"
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO مباشر بدون ضغط جاهز للمحاكي والأجهزة الحقيقية."
