@@ -13,6 +13,15 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
+    - name: Create Swap Memory Space
+      run: |
+        sudo swapoff -a || true
+        sudo rm -f /mnt/swapfile
+        sudo fallocate -l 2G /mnt/swapfile
+        sudo chmod 600 /mnt/swapfile
+        sudo mkswap /mnt/swapfile
+        sudo swapon /mnt/swapfile
+
     - name: Install Building Tools
       run: |
         sudo apt-get update
@@ -25,7 +34,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install Desktop and Interactive Setup System
+    - name: Install System & Setup Interactive User
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,7 +46,7 @@ jobs:
 
         # 1. تثبيت النواة المباشرة والواجهة الخفيفة
         apt-get install -y --no-install-recommends \
-          linux-image-686 live-boot xorg openbox nodm sudo \
+          linux-image-686 live-boot xserver-xorg-core xserver-xorg xinit openbox nodm sudo \
           plank papirus-icon-theme arc-theme zenity python3 netsurf-gtk
 
         # 2. إنشاء مستخدم افتراضي بدون كلمة سر إطلاقاً
@@ -45,7 +54,7 @@ jobs:
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. أداة الإعداد التفاعلي لتحديد اسم المستخدم عند الإقلاع لأول مرة
+        # 3. أداة الإعداد التفاعلي لتحديد الاسم عند الإقلاع
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -76,7 +85,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 5. الدخول التلقائي المباشر (No Password) عبر nodm
+        # 5. الدخول التلقائي المباشر (No Password)
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -100,7 +109,7 @@ jobs:
         rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
         EOF
 
-        # فصل مجلدات النظام قبل عملية الضغط
+        # فصل المجلدات المفتوحة قبل الضغط
         sudo umount -f build/rootfs/dev || true
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
@@ -116,8 +125,8 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط محسن وسريع مخصص للعمل داخل سيرفرات GitHub بدون إجهاد
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 256k -no-recovery
+        # ضغط خفيف ومقيد بحد ذاكرة 512M يمنع الخروج بخطأ exit code 13 نهائياً
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -mem 512M -b 128k
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
@@ -133,7 +142,7 @@ jobs:
           APPEND initrd=/live/initrd.img boot=live username=user quiet splash ---
         EOF
 
-    - name: Generate Universal ISO
+    - name: Generate Universal Bootable ISO
       run: |
         genisoimage -logical-core-segment -cache-inodes -J -l -r \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
