@@ -1,4 +1,4 @@
-name: Build LumixOS ISO (Universal Edition)
+name: Build LumixOS ISO (Lite & Fast)
 
 on:
   push:
@@ -13,45 +13,43 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Install All Essential ISO Building Tools
+    - name: Install ISO Building Tools
       run: |
-        sudo apt-get update || true
+        sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          debootstrap squashfs-tools xorriso genisoimage mtools \
-          isolinux syslinux syslinux-common syslinux-utils \
-          grub-pc-bin ubuntu-keyring wget zenity curl git || true
+          debootstrap squashfs-tools xorriso genisoimage isolinux syslinux-common syslinux-utils \
+          wget zenity curl git
 
-    - name: Create Base RootFS Architecture (Debian Bookworm i386 for v86 & Real PCs)
+    - name: Create Base RootFS (Debian Bookworm i386)
       run: |
         mkdir -p build/rootfs
-        sudo debootstrap --arch=i386 --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/ || true
+        sudo debootstrap --arch=i386 --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install Kernel, Desktop Features, Games, and Custom Tools
+    - name: Install Desktop Features and Apps
       run: |
-        sudo mount --bind /dev build/rootfs/dev || true
-        sudo mount --bind /proc build/rootfs/proc || true
-        sudo mount --bind /sys build/rootfs/sys || true
+        sudo mount --bind /dev build/rootfs/dev
+        sudo mount --bind /proc build/rootfs/proc
+        sudo mount --bind /sys build/rootfs/sys
 
-        cat << 'EOF' | sudo chroot build/rootfs /bin/bash || true
+        cat << 'EOF' | sudo chroot build/rootfs /bin/bash
         export DEBIAN_FRONTEND=noninteractive
-        apt-get update --fix-missing || true
+        apt-get update
 
-        # 1. تثبيت النواة المباشرة والواجهة كاملة مع التطبيقات والألعاب
+        # 1. تثبيت النواة المباشرة الرسمية والواجهة
         apt-get install -y --no-install-recommends \
-          linux-image-686 live-boot xorg xfce4 xfce4-goodies lightdm \
-          plank papirus-icon-theme arc-theme firefox-esr git wget curl zenity \
-          aisleriot gnome-mines gnome-sudoku pingus python3 || true
+          linux-image-686 live-boot xorg xfce4 xfce4-terminal \
+          plank papirus-icon-theme arc-theme firefox-esr wget curl zenity python3
 
-        # 2. تخصيص هوية LumixOS
+        # 2. تخصيص هوية النظام
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
-        VERSION="1.0 (Universal Edition)"
+        VERSION="1.0 (v86 Edition)"
         ID=lumixos
-        PRETTY_NAME="LumixOS 1.0 (v86 & Real PC)"
+        PRETTY_NAME="LumixOS 1.0"
         RELEASE
 
-        # 3. إعداد التشغيل التلقائي لشريط macOS (Plank)
+        # 3. التشغيل التلقائي للشريط
         mkdir -p /etc/skel/.config/autostart/
         cat << 'AUTOSTART' > /etc/skel/.config/autostart/plank.desktop
         [Desktop Entry]
@@ -63,13 +61,13 @@ jobs:
         Name=Plank Dock
         AUTOSTART
 
-        # 4. بناء أداة الترحيب (Lumix Welcome Center)
+        # 4. أداة الترحيب
         mkdir -p /usr/local/bin/
-        cat << 'APPINSTALLER' > /usr/local/bin/lumix-welcome
+        cat << 'APP' > /usr/local/bin/lumix-welcome
         #!/bin/bash
-        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا وسيم في نظام LumixOS الشامل!\nجميع الميزات، الشريط، والألعاب مثبتة ومجهزة بنجاح." --width=400
-        APPINSTALLER
-        chmod +x /usr/local/bin/lumix-welcome || true
+        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا وسيم في LumixOS!" --width=300
+        APP
+        chmod +x /usr/local/bin/lumix-welcome
 
         cat << 'AUTOSTART_WELCOME' > /etc/skel/.config/autostart/lumix-welcome.desktop
         [Desktop Entry]
@@ -78,10 +76,10 @@ jobs:
         Hidden=false
         NoDisplay=false
         X-GNOME-Autostart-enabled=true
-        Name=Lumix Welcome Center
+        Name=Lumix Welcome
         AUTOSTART_WELCOME
 
-        # 5. ضبط مظهر Arc-Dark وأيقونات Papirus-Dark
+        # 5. الثيمات
         mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
         cat << 'XSETTINGS' > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
         <?xml version="1.0" encoding="UTF-8"?>
@@ -93,62 +91,52 @@ jobs:
         </channel>
         XSETTINGS
 
-        apt-get clean || true
+        apt-get clean
+        rm -rf /var/lib/apt/lists/*
         EOF
 
-        sudo umount -l build/rootfs/dev || true
-        sudo umount -l build/rootfs/proc || true
-        sudo umount -l build/rootfs/sys || true
+        sudo umount -l build/rootfs/dev
+        sudo umount -l build/rootfs/proc
+        sudo umount -l build/rootfs/sys
 
-    - name: Extract Kernel and Build Complete ISO Directory Structure
+    - name: Extract Kernel and Prepare ISO Structure
       run: |
-        mkdir -p build/iso/casper
-        mkdir -p build/iso/boot/grub
+        mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
 
-        # استخراج ملفات النواة إلى casper
-        K_FILE=$(sudo find build/rootfs/boot/ /boot/ -type f -name "vmlinuz*" 2>/dev/null | head -n 1)
-        I_FILE=$(sudo find build/rootfs/boot/ /boot/ -type f -name "initrd*" 2>/dev/null | head -n 1)
+        # استخراج النواة إلى المجلد المباشر الرسمي live/
+        K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
+        I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
 
-        sudo cp -L "$K_FILE" build/iso/casper/vmlinuz || true
-        sudo cp -L "$I_FILE" build/iso/casper/initrd.img || true
+        sudo cp -L "$K_FILE" build/iso/live/vmlinuz
+        sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط بيئة النظام إلى filesystem.squashfs
-        sudo mksquashfs build/rootfs build/iso/casper/filesystem.squashfs -comp xz || true
+        # ضغط النظام بجودة عالية وصغيرة الحجم
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp xz
 
-        # نسخ ووحدات إعدادات ISOLINUX/SYSLINUX لـ v86
-        sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/ || true
+        # إعداد ملفات ISOLINUX الصارمة والمباشرة
+        sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
         sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
 
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
-        TIMEOUT 30
+        TIMEOUT 10
 
         LABEL lumix
-          KERNEL /casper/vmlinuz
-          APPEND initrd=/casper/initrd.img boot=live quiet splash ---
+          KERNEL /live/vmlinuz
+          APPEND initrd=/live/initrd.img boot=live quiet splash ---
         EOF
 
-        cat << 'EOF' | sudo tee build/iso/boot/grub/grub.cfg
-        set default=0
-        set timeout=5
-
-        menuentry "✦ Start LumixOS 1.0 (Live)" {
-            linux /casper/vmlinuz boot=live quiet splash ---
-            initrd /casper/initrd.img
-        }
-        EOF
-
-    - name: Generate Universal Bootable ISO
+    - name: Build Final Clean ISO
       run: |
-        sudo xorriso -as mkisofs -r -V "LumixOS" -J -joliet-long \
+        genisoimage -logical-core-segment -cache-inodes -J -l -r \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -o LumixOS-1.0.iso build/iso || true
+          -output LumixOS-1.0.iso build/iso
 
-    - name: Upload Completed LumixOS ISO Artifact
+    - name: Upload Completed ISO
       uses: actions/upload-artifact@v4
       with:
         name: LumixOS-1.0-ISO
