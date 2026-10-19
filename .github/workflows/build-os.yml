@@ -13,14 +13,7 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Free Disk Space and Expand Memory
-      run: |
-        sudo fallocate -l 4G /swapfile
-        sudo chmod 600 /swapfile
-        sudo mkswap /swapfile
-        sudo swapon /swapfile
-
-    - name: Install Building Tools
+    - name: Free Space and Setup Tools
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -32,7 +25,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install Core Desktop Packages
+    - name: Install Desktop and Customizations
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -42,16 +35,13 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # تثبيت النواة والواجهة الرسومية الأساسية
+        # 1. تثبيت النواة المباشرة والواجهة
         apt-get install -y --no-install-recommends \
-          linux-image-686 live-boot xorg xfce4 xfce4-terminal lightdm
-
-        # تثبيت الثيمات والتطبيقات
-        apt-get install -y --no-install-recommends \
+          linux-image-686 live-boot xorg xfce4 xfce4-terminal lightdm \
           plank papirus-icon-theme arc-theme firefox-esr wget curl zenity python3 \
           aisleriot gnome-mines gnome-sudoku
 
-        # تخصيص هوية LumixOS
+        # 2. هوية LumixOS
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -60,7 +50,7 @@ jobs:
         PRETTY_NAME="LumixOS 1.0"
         RELEASE
 
-        # التشغيل التلقائي لشريط Plank
+        # 3. التشغيل التلقائي لشريط Plank
         mkdir -p /etc/skel/.config/autostart/
         cat << 'AUTOSTART' > /etc/skel/.config/autostart/plank.desktop
         [Desktop Entry]
@@ -72,7 +62,7 @@ jobs:
         Name=Plank Dock
         AUTOSTART
 
-        # أداة الترحيب Lumix Welcome
+        # 4. أداة الترحيب Lumix Welcome
         mkdir -p /usr/local/bin/
         cat << 'APP' > /usr/local/bin/lumix-welcome
         #!/bin/bash
@@ -90,7 +80,7 @@ jobs:
         Name=Lumix Welcome
         AUTOSTART_WELCOME
 
-        # ثيم المظهر الأنيق
+        # 5. ضبط ثيم Arc-Dark و Papirus-Dark
         mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
         cat << 'XSETTINGS' > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
         <?xml version="1.0" encoding="UTF-8"?>
@@ -110,7 +100,7 @@ jobs:
         sudo umount -l build/rootfs/proc
         sudo umount -l build/rootfs/sys
 
-    - name: Extract Kernel and Prepare ISO Directory
+    - name: Prepare ISO Directory Structure
       run: |
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
@@ -121,8 +111,8 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط خفيف وسريع للحفاظ على الذاكرة
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 512k
+        # ضغط متوازن وسريع بدون استهلاك مفرط للذاكرة
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
@@ -138,7 +128,7 @@ jobs:
           APPEND initrd=/live/initrd.img boot=live quiet splash ---
         EOF
 
-    - name: Generate ISO Image
+    - name: Generate Bootable ISO
       run: |
         genisoimage -logical-core-segment -cache-inodes -J -l -r \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
