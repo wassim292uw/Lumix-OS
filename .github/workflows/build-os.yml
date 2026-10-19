@@ -4,6 +4,12 @@ on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
+name: Build LumixOS ISO
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,23 +19,14 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Create Swap Memory Space
-      run: |
-        sudo swapoff -a || true
-        sudo rm -f /mnt/swapfile
-        sudo fallocate -l 2G /mnt/swapfile
-        sudo chmod 600 /mnt/swapfile
-        sudo mkswap /mnt/swapfile
-        sudo swapon /mnt/swapfile
-
-    - name: Install Building Tools
+    - name: Free Space & Install Building Tools
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso genisoimage isolinux syslinux-common syslinux-utils \
           zenity curl git
 
-    - name: Create Base RootFS (Debian Bookworm i386)
+    - name: Create Minimal Base RootFS (Debian Bookworm i386)
       run: |
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
@@ -44,17 +41,17 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة المباشرة والواجهة الخفيفة
+        # 1. تثبيت النواة والواجهة الأساسية الخفيفة جداً فقط
         apt-get install -y --no-install-recommends \
           linux-image-686 live-boot xserver-xorg-core xserver-xorg xinit openbox nodm sudo \
-          plank papirus-icon-theme arc-theme zenity python3 netsurf-gtk
+          plank zenity python3 netsurf-gtk
 
-        # 2. إنشاء مستخدم افتراضي بدون كلمة سر إطلاقاً
+        # 2. إنشاء مستخدم افتراضي بدون كلمة سر
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. أداة الإعداد التفاعلي لتحديد الاسم عند الإقلاع
+        # 3. أداة الإعداد التفاعلي لتحديد اسم المستخدم عند الإقلاع
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -74,7 +71,7 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. إعداد التشغيل التلقائي للشريط والأداة الترحيبية
+        # 4. التشغيل التلقائي للشريط والأداة
         mkdir -p /home/user/.config/openbox/
         mkdir -p /etc/skel/.config/openbox/
         cat << 'AUTO' > /home/user/.config/openbox/autostart
@@ -85,7 +82,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 5. الدخول التلقائي المباشر (No Password)
+        # 5. الدخول التلقائي بدون كلمة سر (No Password)
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -100,21 +97,21 @@ jobs:
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
-        VERSION="1.0 (Universal Edition)"
+        VERSION="1.0 (Lite Edition)"
         ID=lumixos
-        PRETTY_NAME="LumixOS 1.0"
+        PRETTY_NAME="LumixOS 1.0 Lite"
         RELEASE
 
+        # تنظيف كل الملفات المؤقتة والمستندات لتقليل الحجم
         apt-get clean
-        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/* /usr/share/man/*
         EOF
 
-        # فصل المجلدات المفتوحة قبل الضغط
         sudo umount -f build/rootfs/dev || true
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Prepare ISO Directory Structure
+    - name: Prepare ISO Directory
       run: |
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
@@ -125,15 +122,12 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط خفيف آمن
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -mem 512M -b 128k
+        # ضغط عالي جداً (XZ) لتقليل حجم الـ ISO لأقصى درجة
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp xz -b 256k
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
         sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
-
-        # تصحيح الأذونات لملفات الإقلاع تماماً
-        sudo chmod -R 777 build/iso
 
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
@@ -141,20 +135,106 @@ jobs:
         TIMEOUT 10
 
         LABEL lumix
+          MENU LABEL LumixOS Live Lite
           KERNEL /live/vmlinuz
           APPEND initrd=/live/initrd.img boot=live username=user quiet splash ---
         EOF
 
-    - name: Generate Universal Bootable ISO
+        sudo chmod -R 755 build/iso
+
+    - name: Generate Lightweight Bootable ISO
       run: |
-        # إضافة sudo لمنع خطأ Permission denied نهائياً
-        sudo genisoimage -logical-core-segment -cache-inodes -J -l -r \
+        sudo genisoimage -R -J \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -output LumixOS-1.0.iso build/iso
+          -output LumixOS-1.0-Lite.iso build/iso
 
     - name: Upload ISO Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: LumixOS-1.0-ISO
-        path: LumixOS-1.0.iso
+        name: LumixOS-1.0-Lite-ISO
+        path: LumixOS-1.0-Lite.isoEnter
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Free Space & Install Building Tools
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          debootstrap squashfs-tools xorriso genisoimage isolinux syslinux-common syslinux-utils \
+          zenity curl git
+
+    - name: Create Minimal Base RootFS (Debian Bookworm i386)
+      run: |
+        mkdir -p build/rootfs
+        sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
+
+    - name: Install System & Setup Interactive User
+      run: |
+        sudo mount --bind /dev build/rootfs/dev
+        sudo mount --bind /proc build/rootfs/proc
+        sudo mount --bind /sys build/rootfs/sys
+
+        cat << 'EOF' | sudo chroot build/rootfs /bin/bash
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+
+        # 1. تثبيت النواة والواجهة الأساسية الخفيفة جداً فقط
+        apt-get install -y --no-install-recommends \
+          linux-image-686 live-boot xserver-xorg-core xserver-xorg xinit openbox nodm sudo \
+          plank zenity python3 netsurf-gtk
+
+        # 2. إنشاء مستخدم افتراضي بدون كلمة سر
+        useradd -m -s /bin/bash -g sudo user
+        passwd -d user
+        echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+        # 3. أداة الإعداد التفاعلي لتحديد اسم المستخدم عند الإقلاع
+        mkdir -p /usr/local/bin/
+        cat << 'SETUP' > /usr/local/bin/lumix-setup
+        #!/bin/bash
+        NAME_FILE="$HOME/.config/lumix_username"
+
+        if [ ! -f "$NAME_FILE" ]; then
+            U_NAME=$(zenity --entry --title="LumixOS Setup" --text="أهلاً بك في LumixOS!\nرجاءً أدخل اسمك لضبط النظام:" --entry-text="المستخدم" --width=350)
+            if [ -z "$U_NAME" ]; then
+                U_NAME="صديق LumixOS"
+            fi
+            mkdir -p "$HOME/.config/"
+            echo "$U_NAME" > "$NAME_FILE"
+        fi
+
+        USER_NAME=$(cat "$NAME_FILE")
+        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا $USER_NAME في نظام LumixOS!\nنتمنى لك تجربة ممتعة وسريعة." --width=380
+        SETUP
+        chmod +x /usr/local/bin/lumix-setup
+
+        # 4. التشغيل التلقائي للشريط والأداة
+        mkdir -p /home/user/.config/openbox/
+        mkdir -p /etc/skel/.config/openbox/
+        cat << 'AUTO' > /home/user/.config/openbox/autostart
+        plank &
+        /usr/local/bin/lumix-setup &
+        AUTO
+        cp /home/user/.config/openbox/autostart /etc/skel/.config/openbox/
+
+        chown -R user:sudo /home/user
+
+        # 5. الدخول التلقائي بدون كلمة سر (No Password)
+        cat << 'NODM' > /etc/default/nodm
+        NODM_ENABLED=true
+        NODM_USER=user
+        NODM_XSESSION=/etc/X11/Xsession
+        NODM_MIN_SESSION_TIME=60
+        NODM_X_OPTIONS='-nolisten tcp'
+        NODM_FIRST_VT=7
+        NODM_XPanal=
+        NODM
+
+        # 6. ضبط هوية النظام
+        echo "lumixos" > /etc/hostname
