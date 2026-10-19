@@ -35,7 +35,7 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة الأساسية والواجهة الرسومية
+        # 1. تثبيت النواة المباشرة والواجهة الخفيفة
         apt-get install -y --no-install-recommends \
           linux-image-686 live-boot xserver-xorg-core xserver-xorg xinit openbox nodm sudo \
           plank zenity python3 netsurf-gtk
@@ -45,7 +45,7 @@ jobs:
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. أداة الإعداد التفاعلي لتحديد اسم المستخدم عند الإقلاع لأول مرة
+        # 3. أداة الإعداد التفاعلي لتحديد الاسم عند الإقلاع لأول مرة
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -76,7 +76,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 5. الدخول التلقائي المباشر (No Password) عبر nodm
+        # 5. الدخول التلقائي المباشر (No Password)
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -91,9 +91,9 @@ jobs:
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
-        VERSION="1.0 (Lite Edition)"
+        VERSION="1.0 (v86 Ready)"
         ID=lumixos
-        PRETTY_NAME="LumixOS 1.0 Lite"
+        PRETTY_NAME="LumixOS 1.0"
         RELEASE
 
         apt-get clean
@@ -104,7 +104,7 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Prepare ISO Directory
+    - name: Prepare ISO Directory Structure
       run: |
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
@@ -122,17 +122,15 @@ jobs:
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
         sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
 
-        # إعداد بارامترات الإقلاع لتكون مباشرة بدون انتظار أو تعقيد في المحاكيات
+        # إعدادات إقلاع مخصصة لتخطي التعليق في v86
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
-        UI vesamenu.c32
         DEFAULT lumix
         PROMPT 0
         TIMEOUT 10
 
         LABEL lumix
-          MENU LABEL LumixOS Live Lite
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user quiet splash vga=788 ---
+          APPEND initrd=/live/initrd.img boot=live username=user nomodeset vga=normal quiet splash ---
         EOF
 
         sudo chmod -R 777 build/iso
@@ -142,10 +140,10 @@ jobs:
         sudo genisoimage -R -J \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -output LumixOS-1.0-Lite.iso build/iso
+          -output LumixOS-1.0-v86.iso build/iso
 
     - name: Upload ISO Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: LumixOS-1.0-Lite-ISO
-        path: LumixOS-1.0-Lite.iso
+        name: LumixOS-1.0-v86-ISO
+        path: LumixOS-1.0-v86.iso
