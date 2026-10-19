@@ -18,7 +18,7 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
           debootstrap squashfs-tools xorriso genisoimage isolinux syslinux-common syslinux-utils \
-          wget zenity curl git
+          zenity curl git
 
     - name: Create Base RootFS (Debian Bookworm i386)
       run: |
@@ -33,20 +33,19 @@ jobs:
 
         cat << 'EOF' | sudo chroot build/rootfs /bin/bash
         export DEBIAN_FRONTEND=noninteractive
-        export RUNLEVEL=1
         apt-get update
 
-        # 1. تثبيت النواة والواجهة بدون خدمات جرافيك تعمل في الخلفية
+        # 1. تثبيت النواة المباشرة والواجهة الخفيفة
         apt-get install -y --no-install-recommends \
           linux-image-686 live-boot xorg openbox nodm sudo \
           plank papirus-icon-theme arc-theme zenity python3 netsurf-gtk
 
-        # 2. إنشاء مستخدم مسبق بدون كلمة سر إطلاقاً
+        # 2. إنشاء مستخدم افتراضي بدون كلمة سر إطلاقاً
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. إعداد أداة الإعداد التفاعلي لتحديد اسم المستخدم عند الإقلاع
+        # 3. أداة الإعداد التفاعلي لتحديد اسم المستخدم عند الإقلاع لأول مرة
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -75,10 +74,9 @@ jobs:
         AUTO
         cp /home/user/.config/openbox/autostart /etc/skel/.config/openbox/
 
-        # إصلاح الملكية
         chown -R user:sudo /home/user
 
-        # 5. تفعيل الدخول التلقائي المباشر (No Password Autologin) عبر nodm
+        # 5. الدخول التلقائي المباشر (No Password) عبر nodm
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -88,7 +86,7 @@ jobs:
         NODM_FIRST_VT=7
         NODM_XPanal=
         NODM
-        
+
         # 6. ضبط هوية النظام
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
@@ -102,9 +100,10 @@ jobs:
         rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
         EOF
 
-        sudo umount -l build/rootfs/dev
-        sudo umount -l build/rootfs/proc
-        sudo umount -l build/rootfs/sys
+        # فصل مجلدات النظام النظام بشكل كامل وقاطع قبل الضغط
+        sudo umount -f build/rootfs/dev || true
+        sudo umount -f build/rootfs/proc || true
+        sudo umount -f build/rootfs/sys || true
 
     - name: Prepare ISO Directory Structure
       run: |
@@ -117,8 +116,8 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط خفيف وحاضن خالي تماماً من استهلاك الذاكرة لتفادي exit code 13
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 64k -no-recovery
+        # ضغط خفيف آمن يمنع خروج السيرفر بخطأ الذاكرة
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 256k
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
