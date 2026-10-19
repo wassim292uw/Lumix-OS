@@ -13,13 +13,6 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Free Disk Space and Allocate Swap Memory
-      run: |
-        sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
-        sudo chmod 600 /swapfile
-        sudo mkswap /swapfile
-        sudo swapon /swapfile
-
     - name: Install Building Tools
       run: |
         sudo apt-get update
@@ -32,7 +25,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install System & Setup Interactive User
+    - name: Install Desktop and Interactive Setup System
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -52,7 +45,7 @@ jobs:
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. إنشاء أداة الإعداد التفاعلي لتحديد الاسم عند الإقلاع
+        # 3. أداة الإعداد التفاعلي لتحديد اسم المستخدم عند الإقلاع لأول مرة
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -72,7 +65,7 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. إعداد التشغيل التلقائي للشريط والأداة
+        # 4. إعداد التشغيل التلقائي للشريط والأداة الترحيبية
         mkdir -p /home/user/.config/openbox/
         mkdir -p /etc/skel/.config/openbox/
         cat << 'AUTO' > /home/user/.config/openbox/autostart
@@ -83,7 +76,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 5. الدخول التلقائي المباشر (No Password)
+        # 5. الدخول التلقائي المباشر (No Password) عبر nodm
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -94,7 +87,7 @@ jobs:
         NODM_XPanal=
         NODM
 
-        # 6. ضبط هوية LumixOS
+        # 6. ضبط هوية النظام
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -107,7 +100,7 @@ jobs:
         rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
         EOF
 
-        # فصل المجلدات تماماً لمنع أخطاء الضغط
+        # فصل مجلدات النظام قبل عملية الضغط
         sudo umount -f build/rootfs/dev || true
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
@@ -123,8 +116,8 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط محسن خفيف وسريع جداً بدون استهلاك الذاكرة
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 64k -no-recovery
+        # ضغط محسن وسريع مخصص للعمل داخل سيرفرات GitHub بدون إجهاد
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 256k -no-recovery
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
@@ -140,7 +133,7 @@ jobs:
           APPEND initrd=/live/initrd.img boot=live username=user quiet splash ---
         EOF
 
-    - name: Generate Universal Bootable ISO
+    - name: Generate Universal ISO
       run: |
         genisoimage -logical-core-segment -cache-inodes -J -l -r \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
