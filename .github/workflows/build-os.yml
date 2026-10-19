@@ -35,7 +35,7 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة والواجهة الأساسية الخفيفة
+        # 1. تثبيت النواة الأساسية والواجهة الرسومية
         apt-get install -y --no-install-recommends \
           linux-image-686 live-boot xserver-xorg-core xserver-xorg xinit openbox nodm sudo \
           plank zenity python3 netsurf-gtk
@@ -76,7 +76,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 5. الدخول التلقائي المباشر بدون كلمة سر عبر nodm
+        # 5. الدخول التلقائي المباشر (No Password) عبر nodm
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -96,12 +96,10 @@ jobs:
         PRETTY_NAME="LumixOS 1.0 Lite"
         RELEASE
 
-        # تنظيف الملفات غير الضرورية للحفاظ على خفة الحجم
         apt-get clean
         rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/* /usr/share/man/*
         EOF
 
-        # فصل المجلدات المفتوحة بشكل آمن
         sudo umount -f build/rootfs/dev || true
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
@@ -117,14 +115,16 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط gzip آمن وسريع يمنع التوقف المفاجئ والسريع
+        # ضغط RootFS
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
         sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
 
+        # إعداد بارامترات الإقلاع لتكون مباشرة بدون انتظار أو تعقيد في المحاكيات
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
+        UI vesamenu.c32
         DEFAULT lumix
         PROMPT 0
         TIMEOUT 10
@@ -132,7 +132,7 @@ jobs:
         LABEL lumix
           MENU LABEL LumixOS Live Lite
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user quiet splash ---
+          APPEND initrd=/live/initrd.img boot=live username=user quiet splash vga=788 ---
         EOF
 
         sudo chmod -R 777 build/iso
