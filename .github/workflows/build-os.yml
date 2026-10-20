@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout Repository
@@ -17,8 +19,8 @@ jobs:
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
-          zenity curl git
+          debootstrap squashfs-tools xorriso isolinux syslinux-common syslinux-utils \
+          zenity curl git gh
 
     - name: Create Complete RootFS (Debian Bookworm i386)
       run: |
@@ -35,17 +37,17 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة والواجهة الرسومية الكاملة وشريط Plank والمتصفح
+        # 1. تثبيت النواة والواجهة الرسومية وشريط Plank والمتصفح
         apt-get install -y --no-install-recommends \
           linux-image-686 live-boot xserver-xorg-core xserver-xorg xinit openbox nodm sudo \
           plank zenity python3 netsurf-gtk wget curl
 
-        # 2. إنشاء المستخدم الافتراضي بدون كلمة سر (No Password)
+        # 2. إنشاء المستخدم الافتراضي بدون كلمة سر إطلاقاً (No Password)
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. أداة الإعداد التفاعلي (Setup Wizard) بترحيب يشبه الأنظمة الكبرى
+        # 3. أداة الإعداد التفاعلي (Setup Wizard) بترحيب خاص باسم وسيم
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -61,7 +63,7 @@ jobs:
         fi
 
         USER_NAME=$(cat "$NAME_FILE")
-        zenity --info --title="LumixOS 1.0 Ultimate" --text="مرحباً بك يا $USER_NAME في بيئتك الخاصة!\nنتمنى لك تجربة ممتعة وسريعة مع LumixOS." --width=400
+        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا $USER_NAME في بيئتك الخاصة!\nنتمنى لك تجربة ممتعة وسريعة مع LumixOS." --width=400
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
@@ -91,9 +93,9 @@ jobs:
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
-        VERSION="1.0 Ultimate"
+        VERSION="1.0"
         ID=lumixos
-        PRETTY_NAME="LumixOS 1.0 Ultimate Edition"
+        PRETTY_NAME="LumixOS 1.0"
         RELEASE
 
         apt-get clean
@@ -115,36 +117,42 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط متوازن وآمن لملفات النظام بالكامل
+        # ضغط RootFS
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
         sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
 
-        # إعدادات إقلاع النظام الشبيهة بالأنظمة الكبرى
+        # إعدادات إقلاع مخصصة ومتوافقة مع المحاكيات
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
         TIMEOUT 10
 
         LABEL lumix
-          MENU LABEL LumixOS 1.0 Ultimate Live
+          MENU LABEL LumixOS Live System
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user quiet splash vga=788 ---
+          APPEND initrd=/live/initrd.img boot=live username=user nomodeset vga=normal quiet splash ---
         EOF
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Universal Bootable ISO
+    - name: Generate Direct ISO File
       run: |
-        sudo genisoimage -R -J \
-          -b isolinux/isolinux.bin -c isolinux/boot.cat \
+        sudo xorriso -as mkisofs \
+          -iso-level 3 \
+          -o LumixOS-1.0.iso \
+          -full-iso9660-filenames \
+          -volid "LumixOS_Live" \
+          -eltorito-boot isolinux/isolinux.bin \
+          -eltorito-catalog isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -output LumixOS-1.0-Ultimate.iso build/iso
+          build/iso
 
-    - name: Upload ISO Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: LumixOS-1.0-Ultimate-ISO
-        path: LumixOS-1.0-Ultimate.iso
+    - name: Direct ISO Release (No ZIP Compression)
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG_NAME="v1.0-${{ github.run_number }}"
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO مباشر بدون ضغط ZIP جاهز للمحاكي."
