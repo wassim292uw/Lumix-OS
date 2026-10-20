@@ -19,7 +19,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          debootstrap squashfs-tools xorriso isolinux syslinux-common syslinux-utils \
+          debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
           zenity curl git gh
 
     - name: Create Complete RootFS (Debian Bookworm i386)
@@ -120,35 +120,30 @@ jobs:
         # ضغط RootFS
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
+        # نسخ كافة ملفات الإقلاع المطلوبة
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
         sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
 
-        # إعدادات إقلاع مخصصة ومتوافقة مع المحاكيات
+        # ملف تهيئة الإقلاع المباشر 100% بدون شاشة توقف
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
-        TIMEOUT 10
+        TIMEOUT 1
 
         LABEL lumix
-          MENU LABEL LumixOS Live System
           KERNEL /live/vmlinuz
           APPEND initrd=/live/initrd.img boot=live username=user nomodeset vga=normal quiet splash ---
         EOF
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Direct ISO File
+    - name: Generate Bootable ISO File
       run: |
-        sudo xorriso -as mkisofs \
-          -iso-level 3 \
-          -o LumixOS-1.0.iso \
-          -full-iso9660-filenames \
-          -volid "LumixOS_Live" \
-          -eltorito-boot isolinux/isolinux.bin \
-          -eltorito-catalog isolinux/boot.cat \
+        sudo genisoimage -logical-core-segment -cache-inodes -J -l -r \
+          -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
-          build/iso
+          -output LumixOS-1.0.iso build/iso
 
     - name: Direct ISO Release (No ZIP Compression)
       env:
