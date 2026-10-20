@@ -19,7 +19,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
+          debootstrap squashfs-tools xorriso isolinux syslinux-common syslinux-utils \
           zenity curl git gh
 
     - name: Create Complete RootFS (Debian Bookworm i386)
@@ -27,7 +27,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install Full System Features & Zorin-like Setup
+    - name: Install Full System Features & Setup User Environment
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -120,16 +120,16 @@ jobs:
         # ضغط RootFS
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
-        # نسخ كافة ملفات الإقلاع المطلوبة
+        # نسخ ملفات الإقلاع
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
         sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
 
-        # ملف تهيئة الإقلاع المباشر 100% بدون شاشة توقف
+        # ملف تهيئة الإقلاع المباشر بدون شاشات انتظار تعطل المحاكي
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
-        TIMEOUT 1
+        TIMEOUT 10
 
         LABEL lumix
           KERNEL /live/vmlinuz
@@ -138,11 +138,17 @@ jobs:
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Bootable ISO File
+    - name: Generate Bootable Hybrid ISO via xorriso
       run: |
-        sudo genisoimage -logical-core-segment -cache-inodes -J -l -r \
-          -b isolinux/isolinux.bin -c isolinux/boot.cat \
+        # بناء ISO هجين متوافق 100% مع v86 ببرنامج xorriso القياسي
+        sudo xorriso -as mkisofs \
+          -iso-level 3 \
+          -full-iso9660-filenames \
+          -volid "LumixOS" \
+          -b isolinux/isolinux.bin \
+          -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
+          -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
           -output LumixOS-1.0.iso build/iso
 
     - name: Direct ISO Release (No ZIP Compression)
@@ -150,4 +156,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO مباشر بدون ضغط ZIP جاهز للمحاكي."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO هجين مباشر جاهز للمحاكي v86 والأجهزة الحقيقية."
