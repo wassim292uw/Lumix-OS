@@ -120,13 +120,16 @@ jobs:
         # ضغط ملفات النظام
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
-        # إعداد محث GRUB المباشر التلقائي
+        # إعداد GRUB النظيف والمعدل للعمل بدون أخطاء vga
         cat << 'EOF' | sudo tee build/iso/boot/grub/grub.cfg
         set default=0
         set timeout=1
 
+        insmod all_video
+        set gfxpayload=keep
+
         menuentry "LumixOS 1.0 Live" {
-            linux /live/vmlinuz boot=live username=user nomodeset vga=normal quiet splash ---
+            linux /live/vmlinuz boot=live username=user nomodeset quiet splash ---
             initrd /live/initrd.img
         }
         EOF
@@ -142,4 +145,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO مبني بواسطة GRUB ومباشر بدون ضغط."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO هجين متوافق 100% مع GRUB وLimbo."
