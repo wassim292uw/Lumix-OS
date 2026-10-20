@@ -19,15 +19,15 @@ jobs:
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          debootstrap squashfs-tools xorriso isolinux syslinux-common syslinux-utils \
+          debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
           zenity curl git gh
 
-    - name: Create Complete RootFS (Debian Bookworm i386)
+    - name: Create Minimal RootFS for v86 (Debian Bookworm i386)
       run: |
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install Full System Features & Setup User Environment
+    - name: Install Essential Features & User Setup
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,24 +37,24 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة والواجهة الرسومية وشريط Plank والمتصفح
+        # 1. تثبيت النواة والواجهة الأساسية الحفيفة جداً لضمان قراءتها في المحاكي
         apt-get install -y --no-install-recommends \
           linux-image-686 live-boot xserver-xorg-core xserver-xorg xinit openbox nodm sudo \
-          plank zenity python3 netsurf-gtk wget curl
+          plank zenity python3 netsurf-gtk
 
-        # 2. إنشاء المستخدم الافتراضي بدون كلمة سر إطلاقاً (No Password)
+        # 2. إنشاء المستخدم بدون كلمة سر إطلاقاً
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. أداة الإعداد التفاعلي (Setup Wizard) بترحيب خاص باسم وسيم
+        # 3. أداة الإعداد التفاعلي لتحديد الاسم عند أول تشغيل
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
         NAME_FILE="$HOME/.config/lumix_username"
 
         if [ ! -f "$NAME_FILE" ]; then
-            U_NAME=$(zenity --entry --title="LumixOS Welcome" --text="أهلاً بك في نظام LumixOS الرائع!\nرجاءً أدخل اسمك لضبط إعدادات النظام:" --entry-text="وسيم" --width=380)
+            U_NAME=$(zenity --entry --title="LumixOS Welcome" --text="أهلاً بك في LumixOS!\nأدخل اسمك لضبط إعدادات النظام:" --entry-text="وسيم" --width=350)
             if [ -z "$U_NAME" ]; then
                 U_NAME="وسيم"
             fi
@@ -63,11 +63,11 @@ jobs:
         fi
 
         USER_NAME=$(cat "$NAME_FILE")
-        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا $USER_NAME في بيئتك الخاصة!\nنتمنى لك تجربة ممتعة وسريعة مع LumixOS." --width=400
+        zenity --info --title="LumixOS 1.0" --text="أهلاً بك يا $USER_NAME في نظام LumixOS!\nنتمنى لك تجربة ممتعة." --width=380
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. تفعيل التشغيل التلقائي لشريط التطبيقات وأداة الترحيب
+        # 4. إعداد التشغيل التلقائي للشريط والأداة
         mkdir -p /home/user/.config/openbox/
         mkdir -p /etc/skel/.config/openbox/
         cat << 'AUTO' > /home/user/.config/openbox/autostart
@@ -78,7 +78,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 5. تفعيل الدخول المباشر بدون كلمة سر عبر nodm
+        # 5. الدخول المباشر التلقائي بدون كلمة سر
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -89,7 +89,7 @@ jobs:
         NODM_XPanal=
         NODM
 
-        # 6. ضبط هوية النظام واسمه الرسمي
+        # 6. ضبط هوية النظام
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -98,15 +98,16 @@ jobs:
         PRETTY_NAME="LumixOS 1.0"
         RELEASE
 
+        # تنظيف لتقليل الحجم لكي يقبله محاكي v86 فك القراءة
         apt-get clean
-        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/* /usr/share/man/*
         EOF
 
         sudo umount -f build/rootfs/dev || true
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Prepare ISO Boot Structure
+    - name: Prepare ISO Directory
       run: |
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
@@ -117,15 +118,14 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط RootFS
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
+        # ضغط عالي للحفاظ على الحجم الخفيف الذي يقبله v86
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 256k
 
-        # نسخ ملفات الإقلاع
+        # نسخ ملفات الإقلاع كاملة
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
         sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
 
-        # ملف تهيئة الإقلاع المباشر بدون شاشات انتظار تعطل المحاكي
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
@@ -138,22 +138,19 @@ jobs:
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Bootable Hybrid ISO via xorriso
+    - name: Generate Bootable Hybrid ISO
       run: |
-        # بناء ISO هجين متوافق 100% مع v86 ببرنامج xorriso القياسي
-        sudo xorriso -as mkisofs \
-          -iso-level 3 \
-          -full-iso9660-filenames \
-          -volid "LumixOS" \
-          -b isolinux/isolinux.bin \
-          -c isolinux/boot.cat \
+        sudo genisoimage -R -J \
+          -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
           -output LumixOS-1.0.iso build/iso
 
-    - name: Direct ISO Release (No ZIP Compression)
+        # تحويل ISO إلى نظام هجين يفهمه محاكي v86
+        sudo isohybrid LumixOS-1.0.iso || true
+
+    - name: Direct ISO Release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO هجين مباشر جاهز للمحاكي v86 والأجهزة الحقيقية."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO مباشر وخفيف مخصص للمحاكي v86."
