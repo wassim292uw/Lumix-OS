@@ -1,4 +1,4 @@
-name: Build LumixOS ISO for Limbo
+name: Build LumixOS ISO i386 Pure for Limbo
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install System Features & Limbo Display Fix
+    - name: Install System Features & Global Setup Wizard
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,26 +37,17 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة، الرسوميات، لغات العالم، والأيقونات
+        # 1. تثبيت النواة المخصصة لـ i386 والخادم الرسومي ولغات العالم
         apt-get install -y --no-install-recommends \
-          linux-image-686 live-boot xserver-xorg-core xserver-xorg-video-all xinit openbox nodm sudo \
+          linux-image-686 live-boot xserver-xorg-core xserver-xorg-video-vesa xserver-xorg-video-fbdev xinit openbox nodm sudo \
           plank zenity python3 netsurf-gtk tzdata locales locales-all papirus-icon-theme wget curl
 
-        # 2. إنشاء المستخدم
+        # 2. إنشاء المستخدم الافتراضي
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. إعداد خادم Xorg للتوافق المباشر مع Limbo لتفادي الشاشة السوداء
-        mkdir -p /etc/X11/xorg.conf.d/
-        cat << 'XORG' > /etc/X11/xorg.conf.d/10-limbo.conf
-        Section "Device"
-            Identifier "Card0"
-            Driver "fbdev"
-        EndSection
-        XORG
-
-        # 4. معالج الإعداد العالمي الشامل (Global Setup Wizard)
+        # 3. معالج الإعداد العالمي الشامل (Global Setup Wizard)
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -66,7 +57,7 @@ jobs:
         NAME_FILE="$CONFIG_DIR/username"
         GEO_FILE="$CONFIG_DIR/timezone"
 
-        # أ. اختيار لغة النظام
+        # أ. اختيار لغة النظام (كل لغات العالم)
         if [ ! -f "$LANG_FILE" ]; then
             SELECTED_LANG=$(zenity --list --title="LumixOS - Language / لغة النظام" \
                 --text="اختر لغتك المفضلة / Select your language:" \
@@ -135,7 +126,7 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 5. التعديل التلقائي لسطح المكتب
+        # 4. ضبط التشغيل التلقائي
         mkdir -p /home/user/.config/openbox/
         mkdir -p /etc/skel/.config/openbox/
         cat << 'AUTO' > /home/user/.config/openbox/autostart
@@ -146,7 +137,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 6. الدخول المباشر المضمون عبر nodm
+        # 5. الدخول المباشر المضمون عبر nodm
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -157,7 +148,7 @@ jobs:
         NODM_XPanal=
         NODM
 
-        # 7. هوية النظام
+        # 6. هوية النظام
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -174,7 +165,7 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Prepare ISO Structure
+    - name: Build Pure i386 GRUB Boot Image
       run: |
         mkdir -p build/iso/boot/grub
         mkdir -p build/iso/live
@@ -187,29 +178,40 @@ jobs:
 
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
-        # إعداد إقلاع GRUB متوافق 100% مع شاشات Limbo
+        # كتابة إعدادات GRUB المخصصة لـ i386 المباشر
         cat << 'EOF' | sudo tee build/iso/boot/grub/grub.cfg
         set default=0
         set timeout=1
 
-        insmod all_video
-        set gfxpayload=keep
-
-        menuentry "LumixOS 1.0 Live" {
-            linux /live/vmlinuz boot=live username=user quiet splash ---
+        menuentry "LumixOS 1.0 Live (i386 Limbo)" {
+            linux /live/vmlinuz boot=live username=user nomodeset xdriver=vesa vga=788 quiet splash ---
             initrd /live/initrd.img
         }
         EOF
 
-        sudo chmod -R 777 build/iso
+        # بناء صورة إقلاع GRUB بنقاء i386 (PC-BIOS) بدون خلط مع UEFI 64-bit
+        grub-mkstandalone \
+          --format=i386-pc \
+          --output=build/iso/boot/grub/core.img \
+          --install-modules="gzio part_msdos biosdisk normal ext2 iso9660 configfile search_fs_uuid" \
+          --modules="gzio part_msdos biosdisk normal ext2 iso9660 configfile search_fs_uuid" \
+          --locales="" \
+          --fonts="" \
+          "boot/grub/grub.cfg=build/iso/boot/grub/grub.cfg"
 
-    - name: Generate ISO via GRUB
+        cat /usr/lib/grub/i386-pc/cdboot.img build/iso/boot/grub/core.img > build/iso/boot/grub/eltorito.img
+
+    - name: Generate Pure i386 ISO via Xorriso
       run: |
-        sudo grub-mkrescue -o LumixOS-1.0.iso build/iso
+        xorriso -as mkisofs \
+          -r -V "LUMIXOS" \
+          -b boot/grub/eltorito.img \
+          -no-emul-boot -boot-load-size 4 -boot-info-table \
+          -o LumixOS-1.0.iso build/iso
 
     - name: Direct ISO Release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Fix Release" --notes "إصلاح ملف الرسوميات لمعالجة الشاشة السوداء في محاكي Limbo."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Pure i386 ISO Release" --notes "إصدار i386 خالص 32-bit بدون أي ملفات 64-bit ليعمل فوراً في Limbo."
