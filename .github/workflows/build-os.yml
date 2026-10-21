@@ -1,4 +1,4 @@
-name: Build LumixOS ISO No-Error Pure i386
+name: Build LumixOS ISO Fix Kernel Path
 
 on:
   push:
@@ -165,13 +165,10 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Build Pure i386 GRUB Boot Image with Modules
+    - name: Prepare ISO Structure with Absolute Root Path
       run: |
-        mkdir -p build/iso/boot/grub/i386-pc
+        mkdir -p build/iso/boot/grub
         mkdir -p build/iso/live
-
-        # نسخ كامل مكتبات GRUB لمنع خطأ missing modules
-        sudo cp -a /usr/lib/grub/i386-pc/* build/iso/boot/grub/i386-pc/
 
         K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
         I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
@@ -181,13 +178,16 @@ jobs:
 
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
-        # إعداد ملف GRUB المباشر بدون أخطاء
+        # إعداد البحث المباشر عن القرص لمنع خطأ vmlinuz not found
         cat << 'EOF' | sudo tee build/iso/boot/grub/grub.cfg
         set default=0
         set timeout=0
 
         insmod all_video
         insmod linux
+        insmod iso9660
+
+        search --no-floppy --set=root --file /live/vmlinuz
 
         menuentry "LumixOS 1.0 Live" {
             linux /live/vmlinuz boot=live username=user nomodeset xdriver=vesa quiet splash ---
@@ -195,29 +195,15 @@ jobs:
         }
         EOF
 
-        # بناء صورة إقلاع GRUB صريحة متوافقة 100% مع MBR الخاص بـ Limbo
-        grub-mkstandalone \
-          --format=i386-pc \
-          --output=build/iso/boot/grub/core.img \
-          --install-modules="gzio part_msdos biosdisk normal ext2 iso9660 configfile search_fs_uuid linux all_video" \
-          --modules="gzio part_msdos biosdisk normal ext2 iso9660 configfile search_fs_uuid linux all_video" \
-          --locales="" \
-          --fonts="" \
-          "boot/grub/grub.cfg=build/iso/boot/grub/grub.cfg"
+        sudo chmod -R 777 build/iso
 
-        cat /usr/lib/grub/i386-pc/cdboot.img build/iso/boot/grub/core.img > build/iso/boot/grub/eltorito.img
-
-    - name: Generate Pure i386 ISO via Xorriso
+    - name: Generate Bootable ISO via GRUB
       run: |
-        xorriso -as mkisofs \
-          -r -V "LUMIXOS" \
-          -b boot/grub/eltorito.img \
-          -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -o LumixOS-1.0.iso build/iso
+        sudo grub-mkrescue -o LumixOS-1.0.iso build/iso
 
     - name: Direct ISO Release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 No-Error Release" --notes "نسخة خالية من الأخطاء كلياً ومصممة للإقلاع المباشر في Limbo."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Final Kernel Path Fix" --notes "حل مشكلة مسار vmlinuz للبدء التلقائي المباشر في Limbo."
