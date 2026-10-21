@@ -1,4 +1,4 @@
-name: Build LumixOS Auto-Boot SeaBIOS ISO
+name: Build LumixOS Auto-Boot Display Fix
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install System Features & Setup Wizard
+    - name: Install System Features & Display Fix
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,9 +37,9 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة المخصصة لـ i386 والخادم الرسومي ولغات العالم
+        # 1. تثبيت النواة، التعريفات الشاملة للرسوميات، ولغات العالم
         apt-get install -y --no-install-recommends \
-          linux-image-686 live-boot xserver-xorg-core xserver-xorg-video-vesa xserver-xorg-video-fbdev xinit openbox nodm sudo \
+          linux-image-686 live-boot xserver-xorg-core xserver-xorg-video-vesa xserver-xorg-video-fbdev xserver-xorg-video-cirrus xinit openbox nodm sudo \
           plank zenity python3 netsurf-gtk tzdata locales locales-all papirus-icon-theme wget curl
 
         # 2. إنشاء المستخدم الافتراضي
@@ -47,7 +47,16 @@ jobs:
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. معالج الإعداد العالمي الشامل (Global Setup Wizard)
+        # 3. إعداد خادم Xorg لإجبار استخدام تعريف العرض المرن الخفيف (fbdev)
+        mkdir -p /etc/X11/xorg.conf.d/
+        cat << 'XORG' > /etc/X11/xorg.conf.d/99-limbo.conf
+        Section "Device"
+            Identifier "LimboVideo"
+            Driver "fbdev"
+        EndSection
+        XORG
+
+        # 4. معالج الإعداد العالمي الشامل (Global Setup Wizard)
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -126,7 +135,7 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. ضبط التشغيل التلقائي
+        # 5. ضبط التشغيل التلقائي لسطح المكتب
         mkdir -p /home/user/.config/openbox/
         mkdir -p /etc/skel/.config/openbox/
         cat << 'AUTO' > /home/user/.config/openbox/autostart
@@ -137,7 +146,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 5. الدخول المباشر المضمون عبر nodm
+        # 6. الدخول المباشر المضمون عبر nodm
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -148,7 +157,7 @@ jobs:
         NODM_XPanal=
         NODM
 
-        # 6. هوية النظام
+        # 7. هوية النظام
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -181,16 +190,16 @@ jobs:
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # التجاوز التلقائي الفوري بدون انتظار
+        # إعداد الإقلاع المباشر بتمرير خيارات العرض المعتمدة لـ Limbo
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         UI vesamenu.c32
         DEFAULT lumix
         PROMPT 0
-        TIMEOUT 1
+        TIMEOUT 10
 
         LABEL lumix
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user nomodeset vga=788 quiet splash ---
+          APPEND initrd=/live/initrd.img boot=live username=user vga=788 xdriver=fbdev quiet splash ---
         EOF
 
         sudo chmod -R 777 build/iso
@@ -207,4 +216,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Auto-Boot Release" --notes "إصدار يقلع تلقائياً وفوراً من شاشة ISOLINUX بدون توقف."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Display Fix Release" --notes "إصلاح العرض الرسومي لمنع الشاشة السوداء والدخول الفوري لمعالج الإعداد."
