@@ -1,4 +1,4 @@
-name: Build LumixOS Pure SeaBIOS ISO
+name: Build LumixOS Auto-Boot SeaBIOS ISO
 
 on:
   push:
@@ -165,7 +165,7 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Prepare Pure SeaBIOS ISO Structure
+    - name: Prepare ISO Structure
       run: |
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
@@ -178,15 +178,15 @@ jobs:
 
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
-        # نسخ جميع مكونات isolinux وتضمين وحدات c32 كاملة
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # إعداد الإقلاع المباشر بدون انتظر ومخصص لـ SeaBIOS
+        # التجاوز التلقائي الفوري بدون انتظار
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
+        UI vesamenu.c32
         DEFAULT lumix
         PROMPT 0
-        TIMEOUT 10
+        TIMEOUT 1
 
         LABEL lumix
           KERNEL /live/vmlinuz
@@ -195,7 +195,7 @@ jobs:
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Pure SeaBIOS ISO
+    - name: Generate Auto-Boot ISO
       run: |
         genisoimage -R -J \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
@@ -207,4 +207,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Pure SeaBIOS Release" --notes "إصدار خالي تماماً من UEFI ومخصص 100% لإقلاع SeaBIOS في محاكي Limbo."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Auto-Boot Release" --notes "إصدار يقلع تلقائياً وفوراً من شاشة ISOLINUX بدون توقف."
