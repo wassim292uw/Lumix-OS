@@ -1,4 +1,4 @@
-name: Build LumixOS ISO with GRUB
+name: Build LumixOS Raw Disk Image
 
 on:
   push:
@@ -15,12 +15,12 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Install Building Tools & GRUB
+    - name: Install Building Tools
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          debootstrap squashfs-tools xorriso grub-pc-bin grub-common \
-          mtools m4 zenity curl git gh
+          debootstrap squashfs-tools dosfstools mtools syslinux syslinux-common \
+          extlinux e2fsprogs parted zenity curl git gh
 
     - name: Create Complete RootFS (Debian Bookworm i386)
       run: |
@@ -37,12 +37,12 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة والواجهة الرسومية وشريط Plank والمتصفح
+        # 1. تثبيت النواة وجميع تعريفات الشاشة الأساسية لمنع التعليق
         apt-get install -y --no-install-recommends \
-          linux-image-686 live-boot xserver-xorg-core xserver-xorg xinit openbox nodm sudo \
-          plank zenity python3 netsurf-gtk wget curl
+          linux-image-686 xserver-xorg-core xserver-xorg xserver-xorg-video-all xinit openbox nodm sudo \
+          plank zenity python3 netsurf-gtk grub-pc-bin extlinux
 
-        # 2. إنشاء المستخدم بدون كلمة سر إطلاقاً
+        # 2. إنشاء المستخدم بدون كلمة سر نهائياً
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
@@ -54,7 +54,7 @@ jobs:
         NAME_FILE="$HOME/.config/lumix_username"
 
         if [ ! -f "$NAME_FILE" ]; then
-            U_NAME=$(zenity --entry --title="LumixOS Welcome" --text="أهلاً بك في نظام LumixOS الرائع!\nرجاءً أدخل اسمك لضبط إعدادات النظام:" --entry-text="وسيم" --width=380)
+            U_NAME=$(zenity --entry --title="LumixOS Welcome" --text="أهلاً بك في نظام LumixOS!\nرجاءً أدخل اسمك لتخصيص النظام:" --entry-text="وسيم" --width=380)
             if [ -z "$U_NAME" ]; then
                 U_NAME="وسيم"
             fi
@@ -63,11 +63,11 @@ jobs:
         fi
 
         USER_NAME=$(cat "$NAME_FILE")
-        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا $USER_NAME في بيئتك الخاصة!\nنتمنى لك تجربة ممتعة وسريعة مع LumixOS." --width=400
+        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا $USER_NAME في بيئتك الخاصة!" --width=400
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. تفعيل التشغيل التلقائي لشريط التطبيقات وأداة الترحيب
+        # 4. التشغيل التلقائي للشريط والأداة
         mkdir -p /home/user/.config/openbox/
         mkdir -p /etc/skel/.config/openbox/
         cat << 'AUTO' > /home/user/.config/openbox/autostart
@@ -106,43 +106,40 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Prepare ISO Structure for GRUB
+    - name: Package as Raw Disk Image (IMG) for Limbo
       run: |
-        mkdir -p build/iso/boot/grub
-        mkdir -p build/iso/live
+        # إنشاء ملف قرص صلب حقيقي بحجم كافي ومستقر (2 جيجابايت)
+        dd if=/dev/zero of=LumixOS-1.0.img bs=1M count=2048
+        sudo mkfs.ext4 -F LumixOS-1.0.img
 
-        K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
-        I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
+        mkdir -p mnt
+        sudo mount -o loop LumixOS-1.0.img mnt
+        sudo cp -a build/rootfs/* mnt/
 
-        sudo cp -L "$K_FILE" build/iso/live/vmlinuz
-        sudo cp -L "$I_FILE" build/iso/live/initrd.img
+        # تثبيت إعدادات الإقلاع البسيطة داخل القرص
+        sudo mkdir -p mnt/boot/extlinux
+        K_FILE=$(ls mnt/boot/ | grep vmlinuz | head -n 1)
+        I_FILE=$(ls mnt/boot/ | grep initrd | head -n 1)
 
-        # ضغط ملفات النظام
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
+        cat << 'EOF' | sudo tee mnt/boot/extlinux/extlinux.conf
+        DEFAULT lumix
+        TIMEOUT 10
+        PROMPT 0
 
-        # إعداد GRUB مع تمرير خيارات منع تعارض الشاشة في المحاكي
-        cat << 'EOF' | sudo tee build/iso/boot/grub/grub.cfg
-        set default=0
-        set timeout=1
-
-        insmod all_video
-        set gfxpayload=keep
-
-        menuentry "LumixOS 1.0 Live" {
-            linux /live/vmlinuz boot=live username=user nomodeset xdriver=vesa noapic quiet splash ---
-            initrd /live/initrd.img
-        }
+        LABEL lumix
+            KERNEL /boot/$K_FILE
+            INITRD /boot/$I_FILE
+            APPEND root=/dev/sda rw rootfstype=ext4 nomodeset quiet splash
         EOF
 
-        sudo chmod -R 777 build/iso
+        # تثبيت القطاع الرئيسي للإقلاع
+        sudo extlinux --install mnt/boot/extlinux
+        sync
+        sudo umount mnt
 
-    - name: Generate Bootable ISO via GRUB
-      run: |
-        sudo grub-mkrescue -o LumixOS-1.0.iso build/iso
-
-    - name: Direct ISO Release (No ZIP Compression)
+    - name: Direct IMG Release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO مهيأ ليعمل مباشرة في Limbo."
+        gh release create "$TAG_NAME" LumixOS-1.0.img --title "LumixOS 1.0 Raw Disk Release" --notes "ملف قرص صلب IMG مباشر ومخصص ليعمل بدون تعليق في Limbo."
