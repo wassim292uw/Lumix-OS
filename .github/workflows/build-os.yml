@@ -1,4 +1,4 @@
-name: Build LumixOS ISO Fix Kernel Path
+name: Build LumixOS Pure SeaBIOS ISO
 
 on:
   push:
@@ -19,15 +19,15 @@ jobs:
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          debootstrap squashfs-tools xorriso grub-pc-bin grub-common \
-          mtools m4 zenity curl git gh
+          debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
+          zenity curl git gh
 
     - name: Create Complete RootFS (Debian Bookworm i386)
       run: |
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install System Features & Global Setup Wizard
+    - name: Install System Features & Setup Wizard
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -165,10 +165,10 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Prepare ISO Structure with Absolute Root Path
+    - name: Prepare Pure SeaBIOS ISO Structure
       run: |
-        mkdir -p build/iso/boot/grub
         mkdir -p build/iso/live
+        mkdir -p build/iso/isolinux
 
         K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
         I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
@@ -178,32 +178,33 @@ jobs:
 
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
-        # إعداد البحث المباشر عن القرص لمنع خطأ vmlinuz not found
-        cat << 'EOF' | sudo tee build/iso/boot/grub/grub.cfg
-        set default=0
-        set timeout=0
+        # نسخ جميع مكونات isolinux وتضمين وحدات c32 كاملة
+        sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
+        sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        insmod all_video
-        insmod linux
-        insmod iso9660
+        # إعداد الإقلاع المباشر بدون انتظر ومخصص لـ SeaBIOS
+        cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
+        DEFAULT lumix
+        PROMPT 0
+        TIMEOUT 10
 
-        search --no-floppy --set=root --file /live/vmlinuz
-
-        menuentry "LumixOS 1.0 Live" {
-            linux /live/vmlinuz boot=live username=user nomodeset xdriver=vesa quiet splash ---
-            initrd /live/initrd.img
-        }
+        LABEL lumix
+          KERNEL /live/vmlinuz
+          APPEND initrd=/live/initrd.img boot=live username=user nomodeset vga=788 quiet splash ---
         EOF
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Bootable ISO via GRUB
+    - name: Generate Pure SeaBIOS ISO
       run: |
-        sudo grub-mkrescue -o LumixOS-1.0.iso build/iso
+        genisoimage -R -J \
+          -b isolinux/isolinux.bin -c isolinux/boot.cat \
+          -no-emul-boot -boot-load-size 4 -boot-info-table \
+          -o LumixOS-1.0.iso build/iso
 
     - name: Direct ISO Release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Final Kernel Path Fix" --notes "حل مشكلة مسار vmlinuz للبدء التلقائي المباشر في Limbo."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Pure SeaBIOS Release" --notes "إصدار خالي تماماً من UEFI ومخصص 100% لإقلاع SeaBIOS في محاكي Limbo."
