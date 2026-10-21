@@ -37,7 +37,7 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة، خادم الرسوميات، الأيقونات العصرية والأدوات
+        # 1. تثبيت النواة، الواجهة الرسومية، الأيقونات العصرية والأدوات
         apt-get install -y --no-install-recommends \
           linux-image-686 live-boot xserver-xorg-core xserver-xorg xinit openbox nodm sudo \
           plank zenity python3 netsurf-gtk tzdata locales papirus-icon-theme wget curl
@@ -102,7 +102,7 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. ضبط التشغيل التلقائي لشريط Plank والأيقونات العصرية
+        # 4. ضبط التشغيل التلقائي لشريط Plank والأيقونات العصرية
         mkdir -p /home/user/.config/openbox/
         mkdir -p /etc/skel/.config/openbox/
         cat << 'AUTO' > /home/user/.config/openbox/autostart
@@ -113,7 +113,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 5. الدخول التلقائي بدون كلمة سر
+        # 5. الدخول التلقائي
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -154,16 +154,16 @@ jobs:
 
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
-        # إعداد ملف GRUB مع ضبط خيارات الإقلاع المرئي لـ Limbo
+        # إعداد GRUB بالضبط الموصى به من قبل المحاكي
         cat << 'EOF' | sudo tee build/iso/boot/grub/grub.cfg
         set default=0
         set timeout=1
 
         insmod all_video
-        set gfxpayload=keep
+        set gfxpayload=1024x768x16,1024x768
 
         menuentry "LumixOS 1.0 Live" {
-            linux /live/vmlinuz boot=live username=user nomodeset xdriver=vesa vga=791 quiet splash ---
+            linux /live/vmlinuz boot=live username=user nomodeset quiet splash ---
             initrd /live/initrd.img
         }
         EOF
@@ -179,4 +179,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO مدعوم بـ GRUB ومعدل لإقلاع الرسوميات في Limbo."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO معدل بدقة الشاشة الموصى بها للعمل المباشر."
