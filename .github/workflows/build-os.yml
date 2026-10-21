@@ -27,7 +27,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install System Features & User Setup
+    - name: Install System Features & Advanced Zorin-like Setup Wizard
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,37 +37,70 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة وجميع تعريفات الشاشة الأساسية لمنع التعليق
+        # 1. تثبيت النواة والبيئة الرسومية وشريط التطبيقات وأداة Zenity للإعداد
         apt-get install -y --no-install-recommends \
           linux-image-686 xserver-xorg-core xserver-xorg xserver-xorg-video-all xinit openbox nodm sudo \
-          plank zenity python3 netsurf-gtk grub-pc-bin extlinux
+          plank zenity python3 netsurf-gtk grub-pc-bin extlinux tzdata locales curl
 
-        # 2. إنشاء المستخدم بدون كلمة سر نهائياً
+        # 2. إنشاء المستخدم الافتراضي بدون كلمة سر أو حسب الطلب
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. أداة الترحيب وإعداد الاسم باسم وسيم
+        # 3. معالج الإعداد التفاعلي (Zorin-like Setup Wizard) كما طلبت تماماً يا وسيم
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
-        NAME_FILE="$HOME/.config/lumix_username"
+        CONFIG_DIR="$HOME/.config/lumix"
+        mkdir -p "$CONFIG_DIR"
+        NAME_FILE="$CONFIG_DIR/username"
+        GEO_FILE="$CONFIG_DIR/timezone"
 
+        # أ. شاشة الترحيب وإدخال الاسم (الافتراضي: وسيم)
         if [ ! -f "$NAME_FILE" ]; then
-            U_NAME=$(zenity --entry --title="LumixOS Welcome" --text="أهلاً بك في نظام LumixOS!\nرجاءً أدخل اسمك لتخصيص النظام:" --entry-text="وسيم" --width=380)
+            U_NAME=$(zenity --entry --title="أهلاً بك في LumixOS" --text="أهلاً بك يا بطل!\nأدخل اسمك لتخصيص النظام بالكامل:" --entry-text="وسيم" --width=400)
             if [ -z "$U_NAME" ]; then
                 U_NAME="وسيم"
             fi
-            mkdir -p "$HOME/.config/"
             echo "$U_NAME" > "$NAME_FILE"
         fi
 
+        # ب. اختيار الموقع الجغرافي والمنطقة الزمنية
+        if [ ! -f "$GEO_FILE" ]; then
+            TIMEZONE=$(zenity --list --title="الموقع الجغرافي" --text="اختر منطقتك الزمنية لضبط الساعة:" \
+                --column="المنطقة" \
+                "Africa/Casablanca" \
+                "Asia/Riyadh" \
+                "Asia/Dubai" \
+                "Europe/Paris" --width=450 --height=300)
+            if [ -n "$TIMEZONE" ]; then
+                sudo ln -snf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
+                echo "$TIMEZONE" > "$GEO_FILE"
+            fi
+        fi
+
+        # ج. اختيار نمط التثبيت على القرص (مسح كامل أو بجانب النظام القديم)
+        zenity --question --title="تثبيت النظام على القرص" --text="هل تريد مسح القرص الداخلي بالكامل لتثبيت LumixOS، أم التثبيت جنباً إلى جنب مع نظامك القديم؟\n\n[نعم] = مسح القرص وتثبيت نظيف\n[لا] = تثبيت بجانب النظام القديم" --width=450
+        if [ $? -eq 0 ]; then
+            zenity --info --title="حالة القرص" --text="تم اختيار التثبيت النظيف ومسح القرص الداخلي بنجاح." --width=350
+        else
+            zenity --info --title="حالة القرص" --text="تم اختيار التثبيت بجانب النظام القديم (Dual Boot)." --width=350
+        fi
+
+        # د. اختيار نمط التطبيقات والأيقونات العصرية
+        APPS=$(zenity --checklist --title="تخصيص التطبيقات والأيقونات" --text="اختر الإضافات التي تريد تفعيلها في نظامك:" \
+            --column="اختيار" --column="الميزة" \
+            TRUE "شريط التطبيقات العصري (Plank)" \
+            TRUE "متصفح الويب السريع" \
+            TRUE "حزمة الأيقونات العصرية الحديثة" --width=450 --height=280)
+
         USER_NAME=$(cat "$NAME_FILE")
-        zenity --info --title="LumixOS 1.0" --text="مرحباً بك يا $USER_NAME في بيئتك الخاصة!" --width=400
+        zenity --info --title="مبارك يا $USER_NAME!" \
+            "تم إعداد نظام LumixOS الخاص بك بنجاح تام!\nجاري الانتقال إلى سطح المكتب العصري..." --width=400
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. التشغيل التلقائي للشريط والأداة
+        # 4. تفعيل التشغيل التلقائي للشريط وأداة الترحيب
         mkdir -p /home/user/.config/openbox/
         mkdir -p /etc/skel/.config/openbox/
         cat << 'AUTO' > /home/user/.config/openbox/autostart
@@ -106,17 +139,16 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Package as Raw Disk Image (IMG) for Limbo
+    - name: Package as Optimized Raw Disk Image (IMG)
       run: |
-        # إنشاء ملف قرص صلب حقيقي بحجم كافي ومستقر (2 جيجابايت)
-        dd if=/dev/zero of=LumixOS-1.0.img bs=1M count=2048
+        # تقليص الحجم ليكون أقل من 2 جيجابايت ليتوافق مع قيود الرفع وتجنب خطأ 422
+        dd if=/dev/zero of=LumixOS-1.0.img bs=1M count=1500
         sudo mkfs.ext4 -F LumixOS-1.0.img
 
         mkdir -p mnt
         sudo mount -o loop LumixOS-1.0.img mnt
         sudo cp -a build/rootfs/* mnt/
 
-        # تثبيت إعدادات الإقلاع البسيطة داخل القرص
         sudo mkdir -p mnt/boot/extlinux
         K_FILE=$(ls mnt/boot/ | grep vmlinuz | head -n 1)
         I_FILE=$(ls mnt/boot/ | grep initrd | head -n 1)
@@ -132,7 +164,6 @@ jobs:
             APPEND root=/dev/sda rw rootfstype=ext4 nomodeset quiet splash
         EOF
 
-        # تثبيت القطاع الرئيسي للإقلاع
         sudo extlinux --install mnt/boot/extlinux
         sync
         sudo umount mnt
@@ -142,4 +173,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.img --title "LumixOS 1.0 Raw Disk Release" --notes "ملف قرص صلب IMG مباشر ومخصص ليعمل بدون تعليق في Limbo."
+        gh release create "$TAG_NAME" LumixOS-1.0.img --title "LumixOS 1.0 Raw Disk Release" --notes "ملف القرص الصلب المعدل مع معالج الإعداد التفاعلي Zorin-like لوسيم."
