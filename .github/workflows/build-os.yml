@@ -37,9 +37,9 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة، البيئة الرسومية، لغات العالم، والأيقونات العصرية
+        # 1. تثبيت النواة، خادم الرسوميات، لغات العالم، والأيقونات العصرية
         apt-get install -y --no-install-recommends \
-          linux-image-686 live-boot xserver-xorg-core xserver-xorg xinit openbox nodm sudo \
+          linux-image-686 live-boot xserver-xorg-core xserver-xorg xserver-xorg-video-vesa xinit openbox nodm sudo \
           plank zenity python3 netsurf-gtk tzdata locales locales-all papirus-icon-theme wget curl
 
         # 2. إنشاء المستخدم الافتراضي
@@ -57,10 +57,10 @@ jobs:
         NAME_FILE="$CONFIG_DIR/username"
         GEO_FILE="$CONFIG_DIR/timezone"
 
-        # أ. اختيار لغة النظام (كل لغات العالم عبر قوائم النظام المدعومة)
+        # أ. اختيار لغة النظام (كل لغات العالم)
         if [ ! -f "$LANG_FILE" ]; then
-            SELECTED_LANG=$(zenity --list --title="LumixOS - Language Selection / لغة النظام" \
-                --text="اختر لغتك المفضلة / Select your preferred language:" \
+            SELECTED_LANG=$(zenity --list --title="LumixOS - Language / لغة النظام" \
+                --text="اختر لغتك المفضلة / Select your language:" \
                 --column="اللغة / Language" \
                 "العربية (Arabic)" \
                 "English (US)" \
@@ -137,7 +137,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 5. الدخول المباشر بدون كلمة سر
+        # 5. الدخول المباشر بدون كلمة سر عبر nodm
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -178,6 +178,7 @@ jobs:
 
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
+        # إعداد ملف GRUB مع تجاوز الشاشة السوداء في المحاكي
         cat << 'EOF' | sudo tee build/iso/boot/grub/grub.cfg
         set default=0
         set timeout=1
@@ -186,7 +187,7 @@ jobs:
         set gfxpayload=keep
 
         menuentry "LumixOS 1.0 Live" {
-            linux /live/vmlinuz boot=live username=user nomodeset quiet splash ---
+            linux /live/vmlinuz boot=live username=user nomodeset xdriver=vesa quiet splash ---
             initrd /live/initrd.img
         }
         EOF
