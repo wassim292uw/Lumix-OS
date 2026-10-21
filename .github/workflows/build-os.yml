@@ -165,10 +165,13 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Build Pure i386 GRUB Boot Image
+    - name: Build Pure i386 GRUB Boot Image with Modules
       run: |
-        mkdir -p build/iso/boot/grub
+        mkdir -p build/iso/boot/grub/i386-pc
         mkdir -p build/iso/live
+
+        # نسخ وحدات GRUB بالكامل لتفادي خطأ linux.mod
+        sudo cp -a /usr/lib/grub/i386-pc/* build/iso/boot/grub/i386-pc/
 
         K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
         I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
@@ -183,18 +186,21 @@ jobs:
         set default=0
         set timeout=1
 
+        insmod all_video
+        insmod linux
+
         menuentry "LumixOS 1.0 Live (i386 Limbo)" {
-            linux /live/vmlinuz boot=live username=user nomodeset xdriver=vesa vga=788 quiet splash ---
+            linux /live/vmlinuz boot=live username=user nomodeset xdriver=vesa quiet splash ---
             initrd /live/initrd.img
         }
         EOF
 
-        # بناء صورة إقلاع GRUB بنقاء i386 (PC-BIOS) بدون خلط مع UEFI 64-bit
+        # بناء صورة إقلاع GRUB متكاملة مع كافة الوحدات
         grub-mkstandalone \
           --format=i386-pc \
           --output=build/iso/boot/grub/core.img \
-          --install-modules="gzio part_msdos biosdisk normal ext2 iso9660 configfile search_fs_uuid" \
-          --modules="gzio part_msdos biosdisk normal ext2 iso9660 configfile search_fs_uuid" \
+          --install-modules="gzio part_msdos biosdisk normal ext2 iso9660 configfile search_fs_uuid linux all_video" \
+          --modules="gzio part_msdos biosdisk normal ext2 iso9660 configfile search_fs_uuid linux all_video" \
           --locales="" \
           --fonts="" \
           "boot/grub/grub.cfg=build/iso/boot/grub/grub.cfg"
@@ -214,4 +220,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Pure i386 ISO Release" --notes "إصدار i386 خالص 32-bit بدون أي ملفات 64-bit ليعمل فوراً في Limbo."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Pure i386 ISO Release" --notes "إصدار i386 خالص 32-bit مع تضمين كافة ملفات الوحدات لـ Limbo."
