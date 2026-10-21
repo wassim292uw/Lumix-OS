@@ -1,4 +1,4 @@
-name: Build LumixOS Raw Disk Image
+name: Build LumixOS ISO Ready for Limbo
 
 on:
   push:
@@ -19,15 +19,15 @@ jobs:
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          debootstrap squashfs-tools dosfstools mtools syslinux syslinux-common \
-          extlinux e2fsprogs parted zenity curl git gh
+          debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
+          zenity curl git gh
 
     - name: Create Complete RootFS (Debian Bookworm i386)
       run: |
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install System Features & Advanced Zorin-like Setup Wizard
+    - name: Install System Features & Advanced Setup Wizard
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,17 +37,17 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة والبيئة الرسومية وشريط التطبيقات وأداة Zenity للإعداد
+        # 1. تثبيت النواة والواجهة الرسومية وشريط Plank وأداة Zenity
         apt-get install -y --no-install-recommends \
-          linux-image-686 xserver-xorg-core xserver-xorg xserver-xorg-video-all xinit openbox nodm sudo \
-          plank zenity python3 netsurf-gtk grub-pc-bin extlinux tzdata locales curl
+          linux-image-686 live-boot xserver-xorg-core xserver-xorg xinit openbox nodm sudo \
+          plank zenity python3 netsurf-gtk tzdata locales wget curl
 
-        # 2. إنشاء المستخدم الافتراضي بدون كلمة سر أو حسب الطلب
+        # 2. إنشاء المستخدم الافتراضي بدون كلمة سر لتجربة سريعة وسلسة
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. معالج الإعداد التفاعلي (Zorin-like Setup Wizard) كما طلبت تماماً يا وسيم
+        # 3. معالج الترحيب والإعداد (Setup Wizard) باسم وسيم
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -56,9 +56,9 @@ jobs:
         NAME_FILE="$CONFIG_DIR/username"
         GEO_FILE="$CONFIG_DIR/timezone"
 
-        # أ. شاشة الترحيب وإدخال الاسم (الافتراضي: وسيم)
+        # أ. إدخال الاسم (الافتراضي: وسيم)
         if [ ! -f "$NAME_FILE" ]; then
-            U_NAME=$(zenity --entry --title="أهلاً بك في LumixOS" --text="أهلاً بك يا بطل!\nأدخل اسمك لتخصيص النظام بالكامل:" --entry-text="وسيم" --width=400)
+            U_NAME=$(zenity --entry --title="LumixOS Welcome" --text="أهلاً بك يا بطل في نظام LumixOS!\nأدخل اسمك لتخصيص النظام:" --entry-text="وسيم" --width=400)
             if [ -z "$U_NAME" ]; then
                 U_NAME="وسيم"
             fi
@@ -67,40 +67,33 @@ jobs:
 
         # ب. اختيار الموقع الجغرافي والمنطقة الزمنية
         if [ ! -f "$GEO_FILE" ]; then
-            TIMEZONE=$(zenity --list --title="الموقع الجغرافي" --text="اختر منطقتك الزمنية لضبط الساعة:" \
+            TIMEZONE=$(zenity --list --title="الموقع الجغرافي" --text="اختر منطقتك الزمنية:" \
                 --column="المنطقة" \
                 "Africa/Casablanca" \
                 "Asia/Riyadh" \
                 "Asia/Dubai" \
-                "Europe/Paris" --width=450 --height=300)
+                "Europe/Paris" --width=450 --height=280)
             if [ -n "$TIMEZONE" ]; then
                 sudo ln -snf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
                 echo "$TIMEZONE" > "$GEO_FILE"
             fi
         fi
 
-        # ج. اختيار نمط التثبيت على القرص (مسح كامل أو بجانب النظام القديم)
-        zenity --question --title="تثبيت النظام على القرص" --text="هل تريد مسح القرص الداخلي بالكامل لتثبيت LumixOS، أم التثبيت جنباً إلى جنب مع نظامك القديم؟\n\n[نعم] = مسح القرص وتثبيت نظيف\n[لا] = تثبيت بجانب النظام القديم" --width=450
+        # ج. اختيار نمط التثبيت على القرص
+        zenity --question --title="تثبيت النظام" --text="هل تريد مسح القرص الداخلي بالكامل لتثبيت LumixOS، أم التثبيت جنباً إلى جنب مع نظامك القديم؟\n\n[نعم] = مسح وتثبيت نظيف\n[لا] = تثبيت بجانب النظام القديم" --width=450
         if [ $? -eq 0 ]; then
-            zenity --info --title="حالة القرص" --text="تم اختيار التثبيت النظيف ومسح القرص الداخلي بنجاح." --width=350
+            zenity --info --title="حالة التثبيت" --text="تم مسح القرص وتثبيت النظام بنجاح." --width=350
         else
-            zenity --info --title="حالة القرص" --text="تم اختيار التثبيت بجانب النظام القديم (Dual Boot)." --width=350
+            zenity --info --title="حالة التثبيت" --text="تم اختيار التثبيت بجانب النظام القديم (Dual Boot)." --width=350
         fi
-
-        # د. اختيار نمط التطبيقات والأيقونات العصرية
-        APPS=$(zenity --checklist --title="تخصيص التطبيقات والأيقونات" --text="اختر الإضافات التي تريد تفعيلها في نظامك:" \
-            --column="اختيار" --column="الميزة" \
-            TRUE "شريط التطبيقات العصري (Plank)" \
-            TRUE "متصفح الويب السريع" \
-            TRUE "حزمة الأيقونات العصرية الحديثة" --width=450 --height=280)
 
         USER_NAME=$(cat "$NAME_FILE")
         zenity --info --title="مبارك يا $USER_NAME!" \
-            "تم إعداد نظام LumixOS الخاص بك بنجاح تام!\nجاري الانتقال إلى سطح المكتب العصري..." --width=400
+            "تم إعداد بيئتك الخاصة بنجاح!\nجاري الدخول إلى سطح المكتب العصري..." --width=400
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. تفعيل التشغيل التلقائي للشريط وأداة الترحيب
+        # 4. تفعيل التشغيل التلقائي
         mkdir -p /home/user/.config/openbox/
         mkdir -p /etc/skel/.config/openbox/
         cat << 'AUTO' > /home/user/.config/openbox/autostart
@@ -111,7 +104,7 @@ jobs:
 
         chown -R user:sudo /home/user
 
-        # 5. تفعيل الدخول المباشر بدون كلمة سر عبر nodm
+        # 5. الدخول المباشر بدون كلمة سر عبر nodm
         cat << 'NODM' > /etc/default/nodm
         NODM_ENABLED=true
         NODM_USER=user
@@ -122,7 +115,7 @@ jobs:
         NODM_XPanal=
         NODM
 
-        # 6. ضبط هوية النظام واسمه الرسمي
+        # 6. ضبط هوية النظام
         echo "lumixos" > /etc/hostname
         cat << 'RELEASE' > /etc/os-release
         NAME="LumixOS"
@@ -139,38 +132,47 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Package as Optimized Raw Disk Image (IMG)
+    - name: Prepare ISO Boot Structure
       run: |
-        # تقليص الحجم ليكون أقل من 2 جيجابايت ليتوافق مع قيود الرفع وتجنب خطأ 422
-        dd if=/dev/zero of=LumixOS-1.0.img bs=1M count=1500
-        sudo mkfs.ext4 -F LumixOS-1.0.img
+        mkdir -p build/iso/live
+        mkdir -p build/iso/isolinux
 
-        mkdir -p mnt
-        sudo mount -o loop LumixOS-1.0.img mnt
-        sudo cp -a build/rootfs/* mnt/
+        K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
+        I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
 
-        sudo mkdir -p mnt/boot/extlinux
-        K_FILE=$(ls mnt/boot/ | grep vmlinuz | head -n 1)
-        I_FILE=$(ls mnt/boot/ | grep initrd | head -n 1)
+        sudo cp -L "$K_FILE" build/iso/live/vmlinuz
+        sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        cat << 'EOF' | sudo tee mnt/boot/extlinux/extlinux.conf
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
+
+        sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
+        sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
+        sudo cp /usr/lib/syslinux/bios/*.c32 build/iso/isolinux/ || true
+
+        cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
-        TIMEOUT 10
         PROMPT 0
+        TIMEOUT 5
 
         LABEL lumix
-            KERNEL /boot/$K_FILE
-            INITRD /boot/$I_FILE
-            APPEND root=/dev/sda rw rootfstype=ext4 nomodeset quiet splash
+          KERNEL /live/vmlinuz
+          APPEND initrd=/live/initrd.img boot=live username=user nomodeset vga=normal quiet splash ---
         EOF
 
-        sudo extlinux --install mnt/boot/extlinux
-        sync
-        sudo umount mnt
+        sudo chmod -R 777 build/iso
 
-    - name: Direct IMG Release
+    - name: Generate Hybrid Bootable ISO
+      run: |
+        sudo genisoimage -R -J \
+          -b isolinux/isolinux.bin -c isolinux/boot.cat \
+          -no-emul-boot -boot-load-size 4 -boot-info-table \
+          -output LumixOS-1.0.iso build/iso
+
+        sudo isohybrid LumixOS-1.0.iso || true
+
+    - name: Direct ISO Release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.img --title "LumixOS 1.0 Raw Disk Release" --notes "ملف القرص الصلب المعدل مع معالج الإعداد التفاعلي Zorin-like لوسيم."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 ISO Direct Release" --notes "ملف ISO هجين متوافق تماماً مع محاكي Limbo ومعالج الإعداد لوسيم."
