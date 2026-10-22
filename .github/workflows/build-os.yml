@@ -1,4 +1,4 @@
-name: Build LumixOS Ultra Fast Boot
+name: Build LumixOS Stable Kernel Release
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install Essential Packages & Setup Wizard
+    - name: Install Compatible Kernel & Setup Wizard
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,9 +37,9 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة الأساسية ومدير التشغيل المباشر الخفيف
+        # 1. تثبيت النواة المتوافقة مع Limbo وQEMU المتوافقة مع i386 بدون تعارض Paravirt
         apt-get install -y --no-install-recommends \
-          systemd-sysv init linux-image-686 live-boot whiptail python3 tzdata locales locales-all sudo
+          systemd-sysv init linux-image-686-pae live-boot whiptail python3 tzdata locales locales-all sudo
 
         # إنشاء الوصلات الرمزية
         ln -snf /lib/systemd/systemd /sbin/init
@@ -50,7 +50,7 @@ jobs:
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. معالج الإعداد التفاعلي (Lumix Setup Wizard)
+        # 3. معالج الإعداد التفاعلي (Setup Wizard)
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -127,7 +127,7 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. تشغيل المعالج فوراً والتسجيل التلقائي
+        # 4. تفعيل الدخول التلقائي عند الإقلاع
         echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
         chown -R user:sudo /home/user
 
@@ -166,13 +166,12 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط سريع جداً وقليل الحجم لتسريع التحميل
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 32k
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # إيقاف نصوص الفحص المزدوج وتفعيل التحميل المباشر للـ RAM
+        # تعطيل الخيارات المسببة للخطأ في النواة (nopv, noapic, nolapic)
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
@@ -180,12 +179,12 @@ jobs:
 
         LABEL lumix
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live toram username=user console=tty0 nomodeset quickreboot
+          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 nopv noapic nolapic nomodeset
         EOF
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Direct ISO
+    - name: Generate Stable ISO
       run: |
         genisoimage -R -J \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
@@ -197,4 +196,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 RAM Boot Release" --notes "إصدار فائق السرعة عبر الذاكرة لتجاوز التوقف البالغ 30 دقيقة كلياً."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Stable Kernel Release" --notes "إصلاح خطأ Kernel Panic كلياً عبر إضافة معلمات nopv noapic لتعمل بمرونة وثبات في Limbo."
