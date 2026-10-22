@@ -1,4 +1,4 @@
-name: Build LumixOS Full Fix Release
+name: Build LumixOS Direct Root Release
 
 on:
   push:
@@ -25,9 +25,9 @@ jobs:
     - name: Create Full RootFS (Debian Bookworm i386)
       run: |
         mkdir -p build/rootfs
-        sudo debootstrap --arch=i386 --include=systemd,systemd-sysv,init,live-boot,live-config,whiptail,python3,sudo,locales,tzdata,nano,pciutils,usbutils,kmod,udev,procps bookworm build/rootfs http://deb.debian.org/debian/
+        sudo debootstrap --arch=i386 --include=systemd,systemd-sysv,init,whiptail,python3,sudo,locales,tzdata,nano,pciutils,usbutils,kmod,udev,procps bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install Complete Kernel & System Modules
+    - name: Install Kernel & Configure System
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,7 +37,6 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # تثبيت النواة المستقرة لـ i386
         apt-get install -y linux-image-686-pae initramfs-tools firmware-linux-free
 
         mkdir -p /etc/network /root/etc/network
@@ -90,37 +89,36 @@ jobs:
 
     - name: Prepare ISO Structure
       run: |
-        mkdir -p build/iso/live
+        mkdir -p build/iso/boot
         mkdir -p build/iso/isolinux
 
-        # البحث المرن والدقيق عن ملف النواة والـ initrd أينما وُجدا داخل rootfs
+        # نسخ النواة والـ initrd مباشرة إلى مجلد الـ boot في ISO
         K_FILE=$(sudo find build/rootfs/ -type f -name "vmlinuz*" | head -n 1)
         I_FILE=$(sudo find build/rootfs/ -type f -name "initrd*" | head -n 1)
 
-        echo "Found Kernel: $K_FILE"
-        echo "Found Initrd: $I_FILE"
+        sudo cp -L "$K_FILE" build/iso/boot/vmlinuz
+        sudo cp -L "$I_FILE" build/iso/boot/initrd.img
 
-        sudo cp -L "$K_FILE" build/iso/live/vmlinuz
-        sudo cp -L "$I_FILE" build/iso/live/initrd.img
-
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 64k
+        # نسخ محتويات النظام بالكامل داخل مجلد iso لتكون الجذر المباشر
+        sudo cp -a build/rootfs/* build/iso/
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
+        # ضبط خيارات الإقلاع المباشر للقرص الصلب الضوئي
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
         TIMEOUT 1
 
         LABEL lumix
-          KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 rootdelay=3 nopv noapic nolapic nomodeset
+          KERNEL /boot/vmlinuz
+          APPEND initrd=/boot/initrd.img root=/dev/sr0 rootfstype=iso9660 ro console=tty1 rootdelay=5 nopv noapic nolapic nomodeset
         EOF
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Full ISO
+    - name: Generate Final ISO
       run: |
         genisoimage -R -J \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
@@ -131,5 +129,5 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        TAG_NAME="v1.0-fix-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-Full.iso --title "LumixOS 1.0 Full Stable Release" --notes "إصلاح البحث عن النواة بشكل ديناميكي لضمان نجاح البناء."
+        TAG_NAME="v1.0-direct-${{ github.run_number }}"
+        gh release create "$TAG_NAME" LumixOS-Full.iso --title "LumixOS 1.0 Direct Root Release" --notes "إلغاء الإقلاع الحي والتحول للإقلاع المباشر المتوافق كلياً مع Limbo."
