@@ -1,4 +1,4 @@
-name: Build LumixOS Direct Console Boot
+name: Build LumixOS Direct Verbose Console
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install System Features & Direct Console Wizard
+    - name: Install System Features & Console Wizard
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,7 +37,7 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة، أدوات الترحيب ولغات العالم
+        # 1. تثبيت النواة الأساسية وأدوات الترحيب
         apt-get install -y --no-install-recommends \
           linux-image-686 live-boot whiptail python3 tzdata locales locales-all wget curl sudo
 
@@ -46,7 +46,7 @@ jobs:
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. معالج الإعداد العالمي الشامل (يعمل تلقائياً عند الدخول)
+        # 3. معالج الإعداد التفاعلي (Setup Wizard)
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -56,7 +56,7 @@ jobs:
         NAME_FILE="$CONFIG_DIR/username"
         GEO_FILE="$CONFIG_DIR/timezone"
 
-        # أ. اختيار لغة النظام (كل لغات العالم)
+        # أ. اختيار لغة النظام
         if [ ! -f "$LANG_FILE" ]; then
             SELECTED_LANG=$(whiptail --title "LumixOS - Language / لغة النظام" \
                 --menu "اختر لغتك المفضلة / Select your language:" 18 60 10 \
@@ -77,7 +77,7 @@ jobs:
             echo "$SELECTED_LANG" > "$LANG_FILE"
         fi
 
-        # ب. شاشة إدخال الاسم (الافتراضي: وسيم)
+        # ب. إدخال الاسم (الافتراضي: وسيم)
         if [ ! -f "$NAME_FILE" ]; then
             U_NAME=$(whiptail --inputbox "أهلاً بك يا وسيم في نظامك الخاص!\nأدخل اسمك لتخصيص الواجهة:" 10 50 "وسيم" 3>&1 1>&2 2>&3)
             if [ -z "$U_NAME" ]; then
@@ -86,7 +86,7 @@ jobs:
             echo "$U_NAME" > "$NAME_FILE"
         fi
 
-        # ج. خيار كلمة السر أو تخطيها
+        # ج. كلمة السر أو تخطيها
         whiptail --yesno "هل تريد إنشاء كلمة سر للحساب أم تخطي ذلك والدخول المباشر؟\n\n[نعم] = إنشاء كلمة سر\n[لا] = تخطي (دخول تلقائي)" 10 60
         if [ $? -eq 0 ]; then
             PASS=$(whiptail --passwordbox "أدخل كلمة السر الجديدة:" 10 40 3>&1 1>&2 2>&3)
@@ -123,7 +123,7 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. تشغيل المعالج فوراً تلقائياً عند تسجيل الدخول
+        # 4. تشغيل المعالج فوراً عند تسجيل الدخول
         echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
         chown -R user:sudo /home/user
 
@@ -160,16 +160,15 @@ jobs:
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # إعداد ملف تشغيل نصي نقي ومباشر يتجاوز أي انتظار
+        # معلمات إقلاع صريحة ومباشرة لمنع أي توقف
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
-        SAY Booting LumixOS for Limbo...
-        TIMEOUT 1
         PROMPT 0
+        TIMEOUT 1
 
         LABEL lumix
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user quiet splash ---
+          APPEND initrd=/live/initrd.img boot=live username=user console=tty0 nomodeset
         EOF
 
         sudo chmod -R 777 build/iso
@@ -186,4 +185,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Direct Console Release" --notes "إصدار نصي نقي ومباشر يتجاوز شاشة ISOLINUX ويفتح معالج الإعداد فوراً في Limbo."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Direct Console Release" --notes "إصدار بـ console=tty0 مباشر لتجاوز التوقف نهائياً وفتح المعالج فوراً."
