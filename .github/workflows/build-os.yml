@@ -1,4 +1,4 @@
-name: Build LumixOS Stable Kernel Release
+name: Build LumixOS Final Fix Release
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install Compatible Kernel & Setup Wizard
+    - name: Install Essential Packages & Setup Wizard
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,11 +37,14 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة المتوافقة مع Limbo وQEMU المتوافقة مع i386 بدون تعارض Paravirt
+        # 1. تثبيت الحزم الأساسية ومعالج الترحيب
         apt-get install -y --no-install-recommends \
           systemd-sysv init linux-image-686-pae live-boot whiptail python3 tzdata locales locales-all sudo
 
-        # إنشاء الوصلات الرمزية
+        # إنشاء المجلدات الناقصة لمنع أي خطأ في الشبكة
+        mkdir -p /etc/network /root/etc/network
+
+        # إنشاء الوصلات الرمزية لـ init
         ln -snf /lib/systemd/systemd /sbin/init
         ln -snf /lib/systemd/systemd /bin/init
 
@@ -127,7 +130,7 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. تفعيل الدخول التلقائي عند الإقلاع
+        # 4. تشغيل المعالج تلقائياً عند الدخول
         echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
         chown -R user:sudo /home/user
 
@@ -171,7 +174,6 @@ jobs:
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # تعطيل الخيارات المسببة للخطأ في النواة (nopv, noapic, nolapic)
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
@@ -184,7 +186,7 @@ jobs:
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Stable ISO
+    - name: Generate Final ISO
       run: |
         genisoimage -R -J \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
@@ -196,4 +198,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Stable Kernel Release" --notes "إصلاح خطأ Kernel Panic كلياً عبر إضافة معلمات nopv noapic لتعمل بمرونة وثبات في Limbo."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Final Fix Release" --notes "إصلاح مجلدات الشبكة وانتقال النظام فوراً لمعالج التثبيت."
