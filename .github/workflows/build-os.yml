@@ -1,4 +1,4 @@
-name: Build LumixOS Fast Release
+name: Build LumixOS Full Complete Edition
 
 on:
   push:
@@ -22,12 +22,13 @@ jobs:
           debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
           curl git gh
 
-    - name: Create Minimal RootFS (Debian Bookworm i386)
+    - name: Create Full RootFS (Debian Bookworm i386)
       run: |
         mkdir -p build/rootfs
-        sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
+        # بناء نظام كامل يتضمن جميع الحزم الأساسية
+        sudo debootstrap --arch=i386 --include=systemd,systemd-sysv,init,live-boot,live-config,whiptail,python3,sudo,locales,tzdata,nano,pciutils,usbutils,kmod,udev,procps bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install Systemd & Setup Wizard
+    - name: Install Complete Kernel & System Modules
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,17 +38,22 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        apt-get install -y --no-install-recommends \
-          systemd-sysv init linux-image-686-pae whiptail python3 tzdata locales locales-all sudo
+        # تثبيت النواة الشاملة مع جميع التعريفات البرمجية والـ Firmware
+        apt-get install -y linux-image-686-pae firmware-linux-free initramfs-tools
 
+        # إنشاء المجلدات لتجنب أخطاء الشبكة أثناء الإقلاع
         mkdir -p /etc/network /root/etc/network
+
+        # ضبط الوصلات الرمزية لمدير النظام
         ln -snf /lib/systemd/systemd /sbin/init
         ln -snf /lib/systemd/systemd /bin/init
 
+        # إنشاء حساب المستخدم الأساسي
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
+        # إنشاء معالج الترحيب والتثبيت التفاعلي (Setup Wizard)
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -55,35 +61,56 @@ jobs:
         mkdir -p "$CONFIG_DIR"
         LANG_FILE="$CONFIG_DIR/language"
         NAME_FILE="$CONFIG_DIR/username"
+        GEO_FILE="$CONFIG_DIR/timezone"
 
+        # 1. اختيار لغة النظام
         if [ ! -f "$LANG_FILE" ]; then
-            SELECTED_LANG=$(whiptail --title "LumixOS - Language" \
-                --menu "Select your language:" 18 60 10 \
+            SELECTED_LANG=$(whiptail --title "LumixOS - Language / لغة النظام" \
+                --menu "اختر لغتك المفضلة / Select your language:" 18 60 10 \
                 "Arabic" "العربية" \
-                "English" "English (US)" 3>&1 1>&2 2>&3)
+                "English" "English (US)" \
+                "French" "Français" \
+                "Spanish" "Español" \
+                "German" "Deutsch" \
+                "Italian" "Italiano" 3>&1 1>&2 2>&3)
             if [ -z "$SELECTED_LANG" ]; then SELECTED_LANG="Arabic"; fi
             echo "$SELECTED_LANG" > "$LANG_FILE"
         fi
 
+        # 2. إدخال اسم المستخدم
         if [ ! -f "$NAME_FILE" ]; then
-            U_NAME=$(whiptail --inputbox "أهلاً بك يا وسيم في نظامك الخاص!\nأدخل اسمك:" 10 50 "وسيم" 3>&1 1>&2 2>&3)
+            U_NAME=$(whiptail --inputbox "أهلاً بك يا وسيم في نظامك الخاص LumixOS!\nأدخل اسمك لتخصيص الواجهة:" 10 50 "وسيم" 3>&1 1>&2 2>&3)
             if [ -z "$U_NAME" ]; then U_NAME="وسيم"; fi
             echo "$U_NAME" > "$NAME_FILE"
         fi
 
-        whiptail --msgbox "مبارك يا وسيم! تم إعداد نظامك بنجاح." 10 50
+        # 3. خيار إنشاء كلمة سر
+        whiptail --yesno "هل تريد إنشاء كلمة سر للحساب أم تخطي ذلك والدخول المباشر؟\n\n[نعم] = إنشاء كلمة سر\n[لا] = تخطي (دخول تلقائي)" 10 60
+        if [ $? -eq 0 ]; then
+            PASS=$(whiptail --passwordbox "أدخل كلمة السر الجديدة:" 10 40 3>&1 1>&2 2>&3)
+            if [ -n "$PASS" ]; then echo "user:$PASS" | sudo chpasswd; fi
+        fi
+
+        USER_NAME=$(cat "$NAME_FILE")
+        whiptail --msgbox "مبارك يا $USER_NAME!\nمرحباً بك في نظام LumixOS المتكامل!" 10 50
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
+        # التشغيل التلقائي للمعالج عند التمهيد
         echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
         chown -R user:sudo /home/user
 
+        # تسجيل الدخول التلقائي الحقيقي على tty1
         mkdir -p /etc/systemd/system/getty@tty1.service.d/
         cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
         [Service]
         ExecStart=
         ExecStart=-/sbin/agetty --autologin user --noclear %I $TERM
         GETTY
+
+        # تعطيل منتظر الشبكة المزعج لسرعة الإقلاع
+        systemctl mask systemd-networkd-wait-online.service || true
+        systemctl mask Networking.service || true
 
         echo "lumixos" > /etc/hostname
         apt-get clean
@@ -96,42 +123,44 @@ jobs:
 
     - name: Prepare ISO Structure
       run: |
-        mkdir -p build/iso/boot
+        mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
 
         K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
         I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
 
-        sudo cp -L "$K_FILE" build/iso/boot/vmlinuz
-        sudo cp -L "$I_FILE" build/iso/boot/initrd.img
+        sudo cp -L "$K_FILE" build/iso/live/vmlinuz
+        sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        sudo mksquashfs build/rootfs build/iso/boot/filesystem.squashfs -comp gzip -b 16k
+        # ضغط كافة الملفات بنظام SquashFS مستقر وبأعلى توافقية
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 64k
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
+        # إعدادات الإقلاع الشاملة والمضمونة
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
         TIMEOUT 1
 
         LABEL lumix
-          KERNEL /boot/vmlinuz
-          APPEND initrd=/boot/initrd.img root=/dev/sr0 ro console=tty1 quiet fastboot nopv noapic nolapic nomodeset
+          KERNEL /live/vmlinuz
+          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 rootdelay=3 nopv noapic nolapic nomodeset
         EOF
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Final ISO
+    - name: Generate Full ISO
       run: |
         genisoimage -R -J \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -o LumixOS-1.0.iso build/iso
+          -o LumixOS-Full.iso build/iso
 
-    - name: Direct ISO Release
+    - name: Release Full ISO
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Stable Build" --notes "نسخة مستقرة وخالية من أخطاء التنسيق."
+        TAG_NAME="v1.0-full-${{ github.run_number }}"
+        gh release create "$TAG_NAME" LumixOS-Full.iso --title "LumixOS Full Complete Edition" --notes "نسخة متكاملة تحتوي على كافة حزم النواة والإقلاع والتعاريف لضمان الإقلاع الفوري والمستقر."
