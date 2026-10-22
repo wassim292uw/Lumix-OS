@@ -1,4 +1,4 @@
-name: Build LumixOS Direct Init Boot
+name: Build LumixOS Final Delay Release
 
 on:
   push:
@@ -37,18 +37,15 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # تثبيت النواة الأساسية ومدير النظام بدون live-boot المعقد
+        # تثبيت الحزم الأساسية ونظام التشغيل الحي
         apt-get install -y --no-install-recommends \
-          systemd-sysv init linux-image-686-pae whiptail python3 tzdata locales locales-all sudo
+          systemd-sysv init linux-image-686-pae live-boot whiptail python3 tzdata locales locales-all sudo
 
-        # إنشاء المجلدات الأساسية
         mkdir -p /etc/network /root/etc/network
 
-        # إنشاء الوصلات الرمزية لـ init
         ln -snf /lib/systemd/systemd /sbin/init
         ln -snf /lib/systemd/systemd /bin/init
 
-        # إنشاء المستخدم الافتراضي
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
@@ -110,7 +107,6 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # تشغيل المعالج تلقائياً عند الدخول على tty1
         echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
         chown -R user:sudo /home/user
 
@@ -139,29 +135,29 @@ jobs:
 
     - name: Prepare ISO Structure
       run: |
-        mkdir -p build/iso/boot
+        mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
 
         K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
         I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
 
-        sudo cp -L "$K_FILE" build/iso/boot/vmlinuz
-        sudo cp -L "$I_FILE" build/iso/boot/initrd.img
+        sudo cp -L "$K_FILE" build/iso/live/vmlinuz
+        sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        # ضغط مجلد الجذر مباشرة كملف system.tar.gz داخل الآيسو للقراءة السريعة
-        sudo tar -C build/rootfs -czf build/iso/boot/system.tar.gz .
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 32k
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
+        # إقلاع حي مستقر مع إعطاء مهلة زمنية 5 ثوانٍ لتعريف القرص
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
         TIMEOUT 1
 
         LABEL lumix
-          KERNEL /boot/vmlinuz
-          APPEND initrd=/boot/initrd.img root=/dev/sr0 rw console=tty1 nopv noapic nolapic nomodeset
+          KERNEL /live/vmlinuz
+          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 rootdelay=5 nopv noapic nolapic nomodeset
         EOF
 
         sudo chmod -R 777 build/iso
@@ -178,4 +174,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Direct Boot Release" --notes "إلغاء الحزم الحية الثقيلة والتحول للإقلاع المباشر السريع."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Delay Fix Release" --notes "إضافة مهلة زمنية rootdelay لتمكين محاكي Limbo من تجهيز مشغل الأقراص بسلام."
