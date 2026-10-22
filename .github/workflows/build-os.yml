@@ -1,4 +1,4 @@
-name: Build LumixOS Direct Verbose Console
+name: Build LumixOS Fix Init Execution
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install System Features & Console Wizard
+    - name: Install System Features, Systemd Init & Setup Wizard
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,9 +37,14 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة الأساسية وأدوات الترحيب
+        # 1. تثبيت مدير النظام init وحزمة systemd-sysv لحل خطأ sbin/init
         apt-get install -y --no-install-recommends \
-          linux-image-686 live-boot whiptail python3 tzdata locales locales-all wget curl sudo
+          systemd-sysv init linux-image-686 live-boot whiptail python3 tzdata locales locales-all wget curl sudo
+
+        # إنشاء الوصلة الرمزية للتأكيد المباشر
+        ln -snf /lib/systemd/systemd /sbin/init
+        ln -snf /lib/systemd/systemd /bin/init
+        ln -snf /lib/systemd/systemd /etc/init
 
         # 2. إنشاء المستخدم الافتراضي
         useradd -m -s /bin/bash -g sudo user
@@ -123,9 +128,17 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. تشغيل المعالج فوراً عند تسجيل الدخول
+        # 4. تشغيل المعالج فوراً ودخول تلقائي عبرgetty
         echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
         chown -R user:sudo /home/user
+
+        # إعداد الدخول التلقائي الحقيقي على tty1
+        mkdir -p /etc/systemd/system/getty@tty1.service.d/
+        cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
+        [Service]
+        ExecStart=
+        ExecStart=-/sbin/agetty --autologin user --noclear %I $TERM
+        GETTY
 
         # 5. هوية النظام
         echo "lumixos" > /etc/hostname
@@ -160,7 +173,7 @@ jobs:
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # معلمات إقلاع صريحة ومباشرة لمنع أي توقف
+        # التمهيد الصريح مع تحديد init المباشر
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
@@ -168,7 +181,7 @@ jobs:
 
         LABEL lumix
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user console=tty0 nomodeset
+          APPEND initrd=/live/initrd.img boot=live username=user init=/sbin/init console=tty0 nomodeset
         EOF
 
         sudo chmod -R 777 build/iso
@@ -185,4 +198,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Direct Console Release" --notes "إصدار بـ console=tty0 مباشر لتجاوز التوقف نهائياً وفتح المعالج فوراً."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Fix Init Release" --notes "إصلاح خطأ sbin/init وتفعيل الدخول التلقائي لمعالج التثبيت فوراً."
