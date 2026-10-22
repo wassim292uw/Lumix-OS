@@ -1,4 +1,4 @@
-name: Build LumixOS Direct Setup Wizard
+name: Build LumixOS Direct Console Boot
 
 on:
   push:
@@ -37,16 +37,16 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت النواة، البيئة، ولغات العالم وأداة الواجهة
+        # 1. تثبيت النواة، أدوات الترحيب ولغات العالم
         apt-get install -y --no-install-recommends \
-          linux-image-686 live-boot zenity whiptail python3 tzdata locales locales-all wget curl sudo
+          linux-image-686 live-boot whiptail python3 tzdata locales locales-all wget curl sudo
 
         # 2. إنشاء المستخدم الافتراضي
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # 3. معالج الترحيب والإعداد العالمي الشامل (يعمل مباشرة عند الإقلاع)
+        # 3. معالج الإعداد العالمي الشامل (يعمل تلقائياً عند الدخول)
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -95,7 +95,7 @@ jobs:
             fi
         fi
 
-        # د. اختيار المنطقة الزمنية والموقع
+        # د. اختيار المنطقة الزمنية
         if [ ! -f "$GEO_FILE" ]; then
             TIMEZONE=$(whiptail --title "الموقع الجغرافي / Timezone" \
                 --menu "اختر منطقتك الزمنية:" 15 60 5 \
@@ -110,7 +110,7 @@ jobs:
             fi
         fi
 
-        # هـ. نمط التثبيت (مسح نظيف أو Dual Boot)
+        # هـ. نمط التثبيت
         whiptail --yesno "اختر نمط التثبيت على القرص:\n\n[نعم] = مسح القرص بالكامل وتثبيت نظيف\n[لا] = التثبيت جنباً إلى جنب مع نظامك القديم (Dual Boot)" 12 65
         if [ $? -eq 0 ]; then
             whiptail --msgbox "تم اختيار مسح القرص وتثبيت النظام بنجاح." 8 45
@@ -123,7 +123,7 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. تشغيل المعالج تلقائياً بمجرد إقلاع النظام وبدون شاشة سوداء
+        # 4. تشغيل المعالج فوراً تلقائياً عند تسجيل الدخول
         echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
         chown -R user:sudo /home/user
 
@@ -144,7 +144,7 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Prepare ISO Structure
+    - name: Prepare Direct ISO Structure
       run: |
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
@@ -160,11 +160,12 @@ jobs:
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # التمهيد الفوري المباشر
+        # إعداد ملف تشغيل نصي نقي ومباشر يتجاوز أي انتظار
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
-        PROMPT 0
+        SAY Booting LumixOS for Limbo...
         TIMEOUT 1
+        PROMPT 0
 
         LABEL lumix
           KERNEL /live/vmlinuz
@@ -185,4 +186,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Direct Console Wizard" --notes "إصدار مباشر يفتح معالج التثبيت العالمي والمحلي باسم وسيم فوراً دون شاشة سوداء."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Direct Console Release" --notes "إصدار نصي نقي ومباشر يتجاوز شاشة ISOLINUX ويفتح معالج الإعداد فوراً في Limbo."
