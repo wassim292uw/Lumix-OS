@@ -1,4 +1,4 @@
-name: Build LumixOS Full 486 Release
+name: Build LumixOS Full Fix Release
 
 on:
   push:
@@ -37,7 +37,8 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        apt-get install -y linux-image-486 initramfs-tools firmware-linux-free
+        # تثبيت النواة القياسية الموثوقة مع الحزم الكاملة
+        apt-get install -y linux-image-i386 initramfs-tools firmware-linux-free
 
         mkdir -p /etc/network /root/etc/network
 
@@ -92,11 +93,9 @@ jobs:
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
 
-        K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
-        I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
-
-        sudo cp -L "$K_FILE" build/iso/live/vmlinuz
-        sudo cp -L "$I_FILE" build/iso/live/initrd.img
+        # نسخ ملفات النواة المضمونة بدقة
+        sudo cp -L build/rootfs/boot/vmlinuz-* build/iso/live/vmlinuz
+        sudo cp -L build/rootfs/boot/initrd.img-* build/iso/live/initrd.img
 
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 64k
 
@@ -126,5 +125,5 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        TAG_NAME="v1.0-486-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-Full.iso --title "LumixOS 1.0 Full 486 Release" --notes "نسخة متكاملة مع نواة 486 المستقرة لتفادي الـ Kernel Panic وحل مشاكل التنسيق."
+        TAG_NAME="v1.0-fix-${{ github.run_number }}"
+        gh release create "$TAG_NAME" LumixOS-Full.iso --title "LumixOS 1.0 Full Stable Release" --notes "إصلاح مسارات النواة لضمان اكتمال البناء وإنتاج الـ ISO بنجاح."
