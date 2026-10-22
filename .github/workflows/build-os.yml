@@ -1,4 +1,100 @@
-- name: Prepare ISO Structure
+name: Build LumixOS Fast Release
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Install Building Tools
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
+          curl git gh
+
+    - name: Create Minimal RootFS (Debian Bookworm i386)
+      run: |
+        mkdir -p build/rootfs
+        sudo debootstrap --arch=i386 --variant=minbase --no-check-gpg bookworm build/rootfs http://deb.debian.org/debian/
+
+    - name: Install Systemd & Setup Wizard
+      run: |
+        sudo mount --bind /dev build/rootfs/dev
+        sudo mount --bind /proc build/rootfs/proc
+        sudo mount --bind /sys build/rootfs/sys
+
+        cat << 'EOF' | sudo chroot build/rootfs /bin/bash
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+
+        apt-get install -y --no-install-recommends \
+          systemd-sysv init linux-image-686-pae whiptail python3 tzdata locales locales-all sudo
+
+        mkdir -p /etc/network /root/etc/network
+        ln -snf /lib/systemd/systemd /sbin/init
+        ln -snf /lib/systemd/systemd /bin/init
+
+        useradd -m -s /bin/bash -g sudo user
+        passwd -d user
+        echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+        mkdir -p /usr/local/bin/
+        cat << 'SETUP' > /usr/local/bin/lumix-setup
+        #!/bin/bash
+        CONFIG_DIR="$HOME/.config/lumix"
+        mkdir -p "$CONFIG_DIR"
+        LANG_FILE="$CONFIG_DIR/language"
+        NAME_FILE="$CONFIG_DIR/username"
+
+        if [ ! -f "$LANG_FILE" ]; then
+            SELECTED_LANG=$(whiptail --title "LumixOS - Language" \
+                --menu "Select your language:" 18 60 10 \
+                "Arabic" "العربية" \
+                "English" "English (US)" 3>&1 1>&2 2>&3)
+            if [ -z "$SELECTED_LANG" ]; then SELECTED_LANG="Arabic"; fi
+            echo "$SELECTED_LANG" > "$LANG_FILE"
+        fi
+
+        if [ ! -f "$NAME_FILE" ]; then
+            U_NAME=$(whiptail --inputbox "أهلاً بك يا وسيم في نظامك الخاص!\nأدخل اسمك:" 10 50 "وسيم" 3>&1 1>&2 2>&3)
+            if [ -z "$U_NAME" ]; then U_NAME="وسيم"; fi
+            echo "$U_NAME" > "$NAME_FILE"
+        fi
+
+        whiptail --msgbox "مبارك يا وسيم! تم إعداد نظامك بنجاح." 10 50
+        SETUP
+        chmod +x /usr/local/bin/lumix-setup
+
+        echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
+        chown -R user:sudo /home/user
+
+        mkdir -p /etc/systemd/system/getty@tty1.service.d/
+        cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
+        [Service]
+        ExecStart=
+        ExecStart=-/sbin/agetty --autologin user --noclear %I $TERM
+        GETTY
+
+        echo "lumixos" > /etc/hostname
+        apt-get clean
+        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+        EOF
+
+        sudo umount -f build/rootfs/dev || true
+        sudo umount -f build/rootfs/proc || true
+        sudo umount -f build/rootfs/sys || true
+
+    - name: Prepare ISO Structure
       run: |
         mkdir -p build/iso/boot
         mkdir -p build/iso/isolinux
@@ -14,7 +110,6 @@
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # تصحيح مسارات النواة وملف الجذر لكي تنطلق فوراً دون انتظار
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
@@ -26,3 +121,17 @@
         EOF
 
         sudo chmod -R 777 build/iso
+
+    - name: Generate Final ISO
+      run: |
+        genisoimage -R -J \
+          -b isolinux/isolinux.bin -c isolinux/boot.cat \
+          -no-emul-boot -boot-load-size 4 -boot-info-table \
+          -o LumixOS-1.0.iso build/iso
+
+    - name: Direct ISO Release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG_NAME="v1.0-${{ github.run_number }}"
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Stable Build" --notes "نسخة مستقرة وخالية من أخطاء التنسيق."
