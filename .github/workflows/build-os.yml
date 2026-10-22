@@ -1,4 +1,4 @@
-name: Build LumixOS Fix Init Execution
+name: Build LumixOS Fast Direct Boot
 
 on:
   push:
@@ -37,7 +37,7 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # 1. تثبيت مدير النظام init وحزمة systemd-sysv لحل خطأ sbin/init
+        # 1. تثبيت مدير النظام init وحزمة systemd-sysv
         apt-get install -y --no-install-recommends \
           systemd-sysv init linux-image-686 live-boot whiptail python3 tzdata locales locales-all wget curl sudo
 
@@ -117,7 +117,7 @@ jobs:
 
         # هـ. نمط التثبيت
         whiptail --yesno "اختر نمط التثبيت على القرص:\n\n[نعم] = مسح القرص بالكامل وتثبيت نظيف\n[لا] = التثبيت جنباً إلى جنب مع نظامك القديم (Dual Boot)" 12 65
-        if [ $? -eq 0 ]; then
+        if [ $? -eq 0 ]; me
             whiptail --msgbox "تم اختيار مسح القرص وتثبيت النظام بنجاح." 8 45
         else
             whiptail --msgbox "تم اختيار التثبيت بجانب النظام القديم (Dual Boot)." 8 45
@@ -128,11 +128,11 @@ jobs:
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
-        # 4. تشغيل المعالج فوراً ودخول تلقائي عبرgetty
+        # 4. تشغيل المعالج فوراً عند تسجيل الدخول
         echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
         chown -R user:sudo /home/user
 
-        # إعداد الدخول التلقائي الحقيقي على tty1
+        # إعداد الدخول التلقائي السريع على tty1
         mkdir -p /etc/systemd/system/getty@tty1.service.d/
         cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
         [Service]
@@ -168,12 +168,13 @@ jobs:
         sudo cp -L "$K_FILE" build/iso/live/vmlinuz
         sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
-        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
+        # ضغط عالي السرعة وبحجم أصغر لتخفيف العبء على ذاكرة المحاكي
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 64k
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # التمهيد الصريح مع تحديد init المباشر
+        # توجيه النواة للتعرف السريع على القرص المباشر
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
@@ -181,7 +182,7 @@ jobs:
 
         LABEL lumix
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user init=/sbin/init console=tty0 nomodeset
+          APPEND initrd=/live/initrd.img boot=live live-media-path=/live username=user init=/sbin/init console=tty0 nomodeset
         EOF
 
         sudo chmod -R 777 build/iso
@@ -198,4 +199,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Fix Init Release" --notes "إصلاح خطأ sbin/init وتفعيل الدخول التلقائي لمعالج التثبيت فوراً."
+        gh release create "$TAG_NAME" LumixOS-1.0.iso --title "LumixOS 1.0 Fast Direct Boot Release" --notes "إصدار فائق السرعة محدد المسار المباشر لتجاوز زمن البحث والوصول الفوري لمعالج التثبيت."
