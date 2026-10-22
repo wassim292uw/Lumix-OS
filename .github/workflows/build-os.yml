@@ -113,7 +113,7 @@ jobs:
 
         LABEL lumix
           KERNEL /boot/vmlinuz
-          APPEND initrd=/boot/initrd.img root=/dev/sr0 rootfstype=iso9660 ro console=tty1 rootdelay=5 nopv noapic nolapic nomodeset
+          APPEND initrd=/boot/initrd.img root=/dev/hda rootfstype=iso9660 ro console=tty1 rootdelay=5 nopv noapic nolapic nomodeset
         EOF
 
         sudo chmod -R 777 build/iso
