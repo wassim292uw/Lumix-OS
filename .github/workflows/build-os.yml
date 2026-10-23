@@ -1,4 +1,4 @@
-name: Build LumixOS Professional Live ISO
+name: Build LumixOS Stable Release
 
 on:
   push:
@@ -15,54 +15,41 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Install Build Dependencies
+    - name: Install Building Tools
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          live-build debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
+          debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
           curl git gh
 
-    - name: Configure Debian Live Build Environment
+    - name: Create Base RootFS
       run: |
-        mkdir -p lumix-live
-        cd lumix-live
+        mkdir -p build/rootfs
+        sudo debootstrap --arch=i386 --variant=minbase bookworm build/rootfs http://deb.debian.org/debian/
 
-        # إعداد هيكلية بناء نظام دبيان الحي
-        lb config \
-          --distribution bookworm \
-          --architecture i386 \
-          --binary-images iso \
-          --bootloader isolinux \
-          --debian-installer false \
-          --archive-areas "main contrib non-free non-free-firmware"
+    - name: Configure Live Boot & Setup Wizard
+      run: |
+        sudo mount --bind /dev build/rootfs/dev
+        sudo mount --bind /proc build/rootfs/proc
+        sudo mount --bind /sys build/rootfs/sys
 
-        # إضافة حزم النظام الأساسية والنواة المضمنة بالكامل مع أدوات الترحيب
-        mkdir -p config/package-lists
-        cat << 'EOF' > config/package-lists/lumix.list.chroot
-        systemd
-        systemd-sysv
-        init
-        live-boot
-        live-config
-        whiptail
-        python3
-        sudo
-        locales
-        tzdata
-        nano
-        pciutils
-        usbutils
-        kmod
-        udev
-        procps
-        linux-image-686-pae
-        firmware-linux-free
-        firmware-misc-nonfree
-        EOF
+        cat << 'EOF' | sudo chroot build/rootfs /bin/bash
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
 
-        # إضافة إعدادات التكوين التلقائي والمستخدم ومعالج الترحيب
-        mkdir -p config/includes.chroot/usr/local/bin
-        cat << 'SETUP' > config/includes.chroot/usr/local/bin/lumix-setup
+        # تثبيت حزم الإقلاع الحي والنواة لبيان الرسمية
+        apt-get install -y --no-install-recommends \
+          systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
+          whiptail python3 sudo locales tzdata nano
+
+        # إعداد المستخدم والتأكد من إمكانية الدخول
+        useradd -m -s /bin/bash -g sudo user
+        passwd -d user
+        echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+        # إنشاء معالج الترحيب
+        mkdir -p /usr/local/bin/
+        cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
         CONFIG_DIR="$HOME/.config/lumix"
         mkdir -p "$CONFIG_DIR"
@@ -77,48 +64,67 @@ jobs:
         USER_NAME=$(cat "$NAME_FILE")
         whiptail --msgbox "مبارك يا $USER_NAME!\nتم تشغيل نظام LumixOS بنجاح تام وبدون أخطاء." 10 50
         SETUP
-        chmod +x config/includes.chroot/usr/local/bin/lumix-setup
+        chmod +x /usr/local/bin/lumix-setup
 
-        # تشغيل المعالج تلقائياً عند الدخول
-        mkdir -p config/includes.chroot/etc/skel/.config/autostart
-        mkdir -p config/includes.chroot/root
-        
-        # إنشاء السكربت لتفعيل الترحيب في شل المستخدم
-        mkdir -p config/includes.chroot/etc/profile.d
-        cat << 'PROF' > config/includes.chroot/etc/profile.d/lumix.sh
-        if [ "$TERM" = "linux" ] && [ "$(tty)" = "/dev/tty1" ]; then
-            /usr/local/bin/lumix-setup
-        fi
-        PROF
-        chmod +x config/includes.chroot/etc/profile.d/lumix.sh
+        echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
+        chown -R user:sudo /home/user
 
-        # ضبط تسجيل الدخول التلقائي على tty1
-        mkdir -p config/includes.chroot/etc/systemd/system/getty@tty1.service.d
-        cat << 'GETTY' > config/includes.chroot/etc/systemd/system/getty@tty1.service.d/override.conf
+        # الدخول التلقائي
+        mkdir -p /etc/systemd/system/getty@tty1.service.d/
+        cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
         [Service]
         ExecStart=
         ExecStart=-/sbin/agetty --autologin user --noclear %I $TERM
         GETTY
 
-        cd ..
+        echo "lumixos" > /etc/hostname
+        apt-get clean
+        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+        EOF
 
-    - name: Build Live ISO Image
+        sudo umount -f build/rootfs/dev || true
+        sudo umount -f build/rootfs/proc || true
+        sudo umount -f build/rootfs/sys || true
+
+    - name: Prepare ISO Structure
       run: |
-        cd lumix-live
-        sudo lb build
-        cd ..
+        mkdir -p build/iso/live
+        mkdir -p build/iso/isolinux
 
-    - name: Rename and Prepare Final ISO
+        K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
+        I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
+
+        sudo cp -L "$K_FILE" build/iso/live/vmlinuz
+        sudo cp -L "$I_FILE" build/iso/live/initrd.img
+
+        sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 32k
+
+        sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
+        sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
+
+        # إعدادات boot=live القياسية
+        cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
+        DEFAULT lumix
+        PROMPT 0
+        TIMEOUT 1
+
+        LABEL lumix
+          KERNEL /live/vmlinuz
+          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 rootdelay=3 nopv noapic nolapic nomodeset
+        EOF
+
+        sudo chmod -R 777 build/iso
+
+    - name: Generate Final ISO
       run: |
-        cd lumix-live
-        ISO_FILE=$(find . -maxdepth 1 -name "*.iso" | head -n 1)
-        cp "$ISO_FILE" ../LumixOS-Professional.iso
-        cd ..
-        ls -lh LumixOS-Professional.iso
+        genisoimage -R -J \
+          -b isolinux/isolinux.bin -c isolinux/boot.cat \
+          -no-emul-boot -boot-load-size 4 -boot-info-table \
+          -o LumixOS-Stable.iso build/iso
 
-    - name: Release Professional ISO
+    - name: Release Stable ISO
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        TAG_NAME="v1.0-pro-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-Professional.iso --title "LumixOS 1.0 Professional Live Release" --notes "نسخة احترافية مبنية عبر أدوات Debian Live الرسمية لتجاوز مشاكل الـ Kernel Panic ودعم عتاد Limbo تماماً."
+        TAG_NAME="v1.0-stable-${{ github.run_number }}"
+        gh release create "$TAG_NAME" LumixOS-Stable.iso --title "LumixOS 1.0 Stable Release" --notes "إصلاح رابط المستودعات والعودة للبناء الحي المستقر."
