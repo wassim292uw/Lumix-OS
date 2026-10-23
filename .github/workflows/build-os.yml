@@ -36,22 +36,25 @@ jobs:
         cat << 'EOF' | sudo chroot build/rootfs /bin/bash
         set -e
         export DEBIAN_FRONTEND=noninteractive
+
+        # تفعيل مستودعات non-free و non-free-firmware رسمياً لتمكين تحميل جميع الحزم والتعريفات
+        cat << 'SOURCES' > /etc/apt/sources.list
+        deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
+        deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+        deb http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
+        SOURCES
+
         apt-get update
 
-        # أولاً: تثبيت النواة وكل الحزم المطلوبة لتوليد مجلد initramfs-tools بسلام
+        # تثبيت النواة وكل الحزم بسلاسة تامة
         apt-get install -y \
           systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
           whiptail python3 python3-pip sudo locales tzdata nano curl wget \
           pciutils usbutils kmod udev procps net-tools iputils-ping \
           firmware-linux firmware-misc-nonfree btrfs-progs xfsprogs e2fsprogs
 
-        # ثانياً: تعديل ملف الإعدادات بعد أن أصبح موجوداً وضمان وجود المجلد
         mkdir -p /etc/initramfs-tools
-        if [ -f /etc/initramfs-tools/initramfs.conf ]; then
-            echo "COMPRESS=gzip" >> /etc/initramfs-tools/initramfs.conf
-        else
-            echo "COMPRESS=gzip" > /etc/initramfs-tools/initramfs.conf
-        fi
+        echo "COMPRESS=gzip" > /etc/initramfs-tools/initramfs.conf
 
         systemctl mask systemd-networkd-wait-online.service || true
         systemctl mask Networking.service || true
@@ -61,7 +64,7 @@ jobs:
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # إعداد معالج الترحيب باسمك يا وسيم
+        # إعداد معالج الترحيب الخاص بك يا وسيم
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -139,4 +142,4 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v1.0-full-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-Full-1GB.iso --title "LumixOS 1.0 Full 1GB Feature Release" --notes "نسخة كاملة وضخمة تحتوي على كافة ملفات وحزم نظام دبيان بحجم يقارب 1GB."
+        gh release create "$TAG_NAME" LumixOS-Full-1GB.iso --title "LumixOS 1.0 Full 1GB Feature Release" --notes "نسخة كاملة وضخمة تحتوي على كافة ملفات وحزم نظام دبيان بحجم يقارب 1GB مع تفعيل مستودعات التعريفات."
