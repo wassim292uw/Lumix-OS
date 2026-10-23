@@ -104,18 +104,15 @@ jobs:
 
           sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 256k
 
-          cat << 'EOF' > build/iso/boot/grub/grub.cfg
+cat << 'EOF' > build/iso/boot/grub/grub.cfg
           set timeout=2
           set default=0
 
           menuentry "LumixOS (Fast Express Boot)" {
-              linux /live/vmlinuz boot=live nomodeset noapic nolapic nowatchdog nmi_watchdog=0 tsc=reliable clocksource=hpet quiet
+              linux /live/vmlinuz boot=live nomodeset noapic nolapic nowatchdog nmi_watchdog=0 tsc=reliable clocksource=hpet
               initrd /live/initrd.img
           }
           EOF
-
-          sudo chmod -R 777 build/iso
-
       - name: Generate Final Fast ISO
         run: |
           grub-mkrescue -o LumixOS-Fast.iso build/iso
