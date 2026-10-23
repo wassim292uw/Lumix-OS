@@ -1,4 +1,4 @@
-name: Build Zorin-Style LumixOS ISO
+name: Build Bazzite-Style LumixOS ISO
 
 on:
   push:
@@ -20,12 +20,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y debootstrap squashfs-tools grub-pc-bin grub-common xorriso mtools
 
-      - name: Create Base System
+      - name: Create Base RootFS (32-bit)
         run: |
           mkdir -p build/rootfs
           sudo debootstrap --variant=minbase --arch=i386 bookworm build/rootfs http://deb.debian.org/debian/
 
-      - name: Configure Zorin-Style Fast System
+      - name: Configure Bazzite-Style Interface
         run: |
           sudo mount --bind /dev build/rootfs/dev
           sudo mount --bind /proc build/rootfs/proc
@@ -42,18 +42,18 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
-            sudo nano bash-completion htop neofetch
+            sudo nano htop openbox tint2 pcmanfm lxterminal
 
-          # Optimize system size
+          # Cleanup docs to optimize speed
           rm -rf /usr/share/doc/* /usr/share/man/*
           apt-get clean
           rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-          # Configure User & Zorin-like Hostname
+          # User & Hostname setup
           useradd -m -s /bin/bash -g sudo user
           passwd -d user
           echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-          echo "zorin-lumixos" > /etc/hostname
+          echo "bazzite-lumixos" > /etc/hostname
 
           # Enable Autologin
           mkdir -p /etc/systemd/system/getty@tty1.service.d/
@@ -63,25 +63,13 @@ jobs:
           ExecStart=-/sbin/agetty --autologin user --noclear %I $TERM
           GETTY
 
-          # Add Custom Zorin-style welcome prompt
-          cat << 'WELCOME' >> /home/user/.bashrc
-          clear
-          echo "========================================================"
-          echo "       Welcome to LumixOS (Zorin-Style Express)         "
-          echo "========================================================"
-          echo "  Fast & Optimized for Limbo x86 Emulator!              "
-          echo "========================================================"
-          neofetch || true
-          WELCOME
-          chown user:sudo /home/user/.bashrc
-
           EOF
 
           sudo umount -f build/rootfs/dev || true
           sudo umount -f build/rootfs/proc || true
           sudo umount -f build/rootfs/sys || true
 
-      - name: Build Final ISO
+      - name: Build ISO Image
         run: |
           mkdir -p build/iso/boot/grub
           mkdir -p build/iso/live
@@ -99,18 +87,18 @@ jobs:
           set default=0
           set gfxpayload=800x600
 
-          menuentry "LumixOS (Zorin Express Boot)" {
+          menuentry "LumixOS (Bazzite-Style Express)" {
               linux /live/vmlinuz boot=live nomodeset noapic nolapic nowatchdog nmi_watchdog=0 tsc=reliable clocksource=hpet
               initrd /live/initrd.img
           }
           EOF
 
           sudo chmod -R 777 build/iso
-          grub-mkrescue -o LumixOS-ZorinEdition.iso build/iso
+          grub-mkrescue -o LumixOS-BazziteEdition.iso build/iso
 
-      - name: Release LumixOS Zorin ISO
+      - name: Release LumixOS Bazzite ISO
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v1.0-zorin-${{ github.run_number }}"
-          gh release create "$TAG_NAME" LumixOS-ZorinEdition.iso --title "LumixOS Zorin Express Edition" --notes "Super fast Zorin-style ISO built for Limbo"
+          TAG_NAME="v1.0-bazzite-${{ github.run_number }}"
+          gh release create "$TAG_NAME" LumixOS-BazziteEdition.iso --title "LumixOS Bazzite Edition" --notes "Bazzite-style ultra-fast ISO for Limbo"
