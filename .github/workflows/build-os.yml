@@ -1,4 +1,4 @@
-name: Build Bazzite Desktop LumixOS ISO
+name: Build Fast LumixOS ISO
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
           mkdir -p build/rootfs
           sudo debootstrap --variant=minbase --arch=i386 bookworm build/rootfs http://deb.debian.org/debian/
 
-      - name: Install & Configure Bazzite Desktop Look
+      - name: Configure Fast LumixOS System
         run: |
           sudo mount --bind /dev build/rootfs/dev
           sudo mount --bind /proc build/rootfs/proc
@@ -42,20 +42,20 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
-            sudo nano htop xorg lxde-core firefox-esr pcmanfm tint2
+            sudo nano htop bash-completion dialog
 
-          # Cleanup to maximize speed
+          # Clean up docs
           rm -rf /usr/share/doc/* /usr/share/man/*
           apt-get clean
           rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-          # Configure User
+          # Configure User & Hostname
           useradd -m -s /bin/bash -g sudo user
           passwd -d user
           echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-          echo "lumixos-bazzite" > /etc/hostname
+          echo "lumixos" > /etc/hostname
 
-          # Enable Autologin to GUI
+          # Enable Autologin for TTY
           mkdir -p /etc/systemd/system/getty@tty1.service.d/
           cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
           [Service]
@@ -63,8 +63,17 @@ jobs:
           ExecStart=-/sbin/agetty --autologin user --noclear %I $TERM
           GETTY
 
-          # Auto start graphical interface for user
-          echo "exec startx" >> /home/user/.bashrc
+          # Custom Welcome Banner
+          cat << 'WELCOME' >> /home/user/.bashrc
+          clear
+          echo "========================================================"
+          echo "         Welcome WASSIM to LumixOS Fast ISO!            "
+          echo "========================================================"
+          echo "  System Loaded Successfully in Limbo Emulator!          "
+          echo "  Type 'sudo htop' to check resources or 'exit' to log out"
+          echo "========================================================"
+          echo ""
+          WELCOME
           chown user:sudo /home/user/.bashrc
 
           EOF
@@ -73,7 +82,7 @@ jobs:
           sudo umount -f build/rootfs/proc || true
           sudo umount -f build/rootfs/sys || true
 
-      - name: Build Fast Graphical ISO
+      - name: Build Fast ISO
         run: |
           mkdir -p build/iso/boot/grub
           mkdir -p build/iso/live
@@ -89,20 +98,19 @@ jobs:
           cat << 'EOF' > build/iso/boot/grub/grub.cfg
           set timeout=1
           set default=0
-          set gfxpayload=800x600
 
-          menuentry "LumixOS (Bazzite Desktop Mode)" {
-              linux /live/vmlinuz boot=live nomodeset noapic nolapic nowatchdog nmi_watchdog=0 tsc=reliable clocksource=hpet
+          menuentry "LumixOS (Fast Express Boot)" {
+              linux /live/vmlinuz boot=live nomodeset noapic nolapic nowatchdog nmi_watchdog=0 tsc=reliable clocksource=hpet vga=788
               initrd /live/initrd.img
           }
           EOF
 
           sudo chmod -R 777 build/iso
-          grub-mkrescue -o LumixOS-BazziteDesktop.iso build/iso
+          grub-mkrescue -o LumixOS-Fast.iso build/iso
 
-      - name: Release LumixOS Bazzite Desktop ISO
+      - name: Release LumixOS Fast ISO
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v1.0-bazzite-gui-${{ github.run_number }}"
-          gh release create "$TAG_NAME" LumixOS-BazziteDesktop.iso --title "LumixOS Bazzite Desktop Edition" --notes "Graphical Bazzite-style ISO optimized for Limbo"
+          TAG_NAME="v1.0-fast-${{ github.run_number }}"
+          gh release create "$TAG_NAME" LumixOS-Fast.iso --title "LumixOS Fast Edition" --notes "Ultra fast stable ISO for Limbo"
