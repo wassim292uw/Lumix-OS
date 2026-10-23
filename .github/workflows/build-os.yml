@@ -18,8 +18,9 @@ jobs:
     - name: Install Building Tools
       run: |
         sudo apt-get update
+        # إضافة mtools و xorriso لضمان نجاح أداة grub-mkrescue
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          debootstrap squashfs-tools genisoimage grub-pc-bin grub-common xorriso \
+          debootstrap squashfs-tools genisoimage grub-pc-bin grub-common xorriso mtools \
           curl git gh
 
     - name: Create Full Graphical RootFS
@@ -45,7 +46,6 @@ jobs:
 
         apt-get update
 
-        # تثبيت النواة، نظام التشغيل الحي، والواجهة الرسومية الخفيفة LXDE لتعمل بسلاسة على Limbo
         apt-get install -y \
           systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
           lxde lightdm xserver-xorg-core xserver-xorg-video-vesa xserver-xorg-input-all \
@@ -58,12 +58,10 @@ jobs:
         systemctl mask Networking.service || true
         systemctl mask systemd-udev-settle.service || true
 
-        # إعداد المستخدم والتسجيل التلقائي على سطح المكتب الرسومي
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # تفعيل الدخول التلقائي عبر LightDM لفتح سطح المكتب مباشرة
         mkdir -p /etc/lightdm/lightdm.conf.d
         cat << 'LGM' > /etc/lightdm/lightdm.conf.d/autologin.conf
         [Seat:*]
@@ -71,7 +69,6 @@ jobs:
         autologin-user-timeout=0
         LGM
 
-        # رسالة ترحيب مخصصة لوسيم على سطح المكتب
         mkdir -p /home/user/Desktop
         cat << 'DESK' > /home/user/Desktop/Welcome.desktop
         [Desktop Entry]
@@ -106,7 +103,6 @@ jobs:
 
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
-        # إعداد ملف التكوين لقائمة GRUB الرسومية الاحترافية
         cat << 'EOF' > build/iso/boot/grub/grub.cfg
         set timeout=5
         set default=0
