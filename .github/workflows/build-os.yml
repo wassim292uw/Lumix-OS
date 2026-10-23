@@ -38,14 +38,20 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        echo "COMPRESS=gzip" >> /etc/initramfs-tools/initramfs.conf
-
-        # تثبيت النواة وكافة الحزم الأساسية والأدوات
+        # أولاً: تثبيت النواة وكل الحزم المطلوبة لتوليد مجلد initramfs-tools بسلام
         apt-get install -y \
           systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
           whiptail python3 python3-pip sudo locales tzdata nano curl wget \
           pciutils usbutils kmod udev procps net-tools iputils-ping \
           firmware-linux firmware-misc-nonfree btrfs-progs xfsprogs e2fsprogs
+
+        # ثانياً: تعديل ملف الإعدادات بعد أن أصبح موجوداً وضمان وجود المجلد
+        mkdir -p /etc/initramfs-tools
+        if [ -f /etc/initramfs-tools/initramfs.conf ]; then
+            echo "COMPRESS=gzip" >> /etc/initramfs-tools/initramfs.conf
+        else
+            echo "COMPRESS=gzip" > /etc/initramfs-tools/initramfs.conf
+        fi
 
         systemctl mask systemd-networkd-wait-online.service || true
         systemctl mask Networking.service || true
@@ -55,7 +61,7 @@ jobs:
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # برنامج الترحب الخاص بـ وسيم
+        # إعداد معالج الترحيب باسمك يا وسيم
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -98,7 +104,6 @@ jobs:
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
 
-        # البحث التلقائي الدقيق عن ملفات النواة
         K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
         I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
 
