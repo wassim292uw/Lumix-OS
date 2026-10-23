@@ -34,11 +34,13 @@ jobs:
         sudo mount --bind /sys build/rootfs/sys
 
         cat << 'EOF' | sudo chroot build/rootfs /bin/bash
+        set -e
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
         echo "COMPRESS=gzip" >> /etc/initramfs-tools/initramfs.conf
 
+        # تثبيت النواة وكافة الحزم الأساسية والأدوات
         apt-get install -y \
           systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
           whiptail python3 python3-pip sudo locales tzdata nano curl wget \
@@ -53,6 +55,7 @@ jobs:
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
+        # برنامج الترحب الخاص بـ وسيم
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -95,9 +98,12 @@ jobs:
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
 
-        # النسخ المباشر المضمون لملفات النواة
-        sudo cp -L build/rootfs/boot/vmlinuz-* build/iso/live/vmlinuz
-        sudo cp -L build/rootfs/boot/initrd.img-* build/iso/live/initrd.img
+        # البحث التلقائي الدقيق عن ملفات النواة
+        K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
+        I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
+
+        sudo cp -L "$K_FILE" build/iso/live/vmlinuz
+        sudo cp -L "$I_FILE" build/iso/live/initrd.img
 
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
