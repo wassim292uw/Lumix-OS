@@ -1,4 +1,4 @@
-name: Build Bazzite-Style LumixOS ISO
+name: Build Bazzite Desktop LumixOS ISO
 
 on:
   push:
@@ -20,12 +20,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y debootstrap squashfs-tools grub-pc-bin grub-common xorriso mtools
 
-      - name: Create Base RootFS (32-bit)
+      - name: Create 32-bit Base RootFS
         run: |
           mkdir -p build/rootfs
           sudo debootstrap --variant=minbase --arch=i386 bookworm build/rootfs http://deb.debian.org/debian/
 
-      - name: Configure Bazzite-Style Interface
+      - name: Install & Configure Bazzite Desktop Look
         run: |
           sudo mount --bind /dev build/rootfs/dev
           sudo mount --bind /proc build/rootfs/proc
@@ -42,20 +42,20 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
-            sudo nano htop openbox tint2 pcmanfm lxterminal
+            sudo nano htop xorg lxde-core firefox-esr pcmanfm tint2
 
-          # Cleanup docs to optimize speed
+          # Cleanup to maximize speed
           rm -rf /usr/share/doc/* /usr/share/man/*
           apt-get clean
           rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-          # User & Hostname setup
+          # Configure User
           useradd -m -s /bin/bash -g sudo user
           passwd -d user
           echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-          echo "bazzite-lumixos" > /etc/hostname
+          echo "lumixos-bazzite" > /etc/hostname
 
-          # Enable Autologin
+          # Enable Autologin to GUI
           mkdir -p /etc/systemd/system/getty@tty1.service.d/
           cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
           [Service]
@@ -63,13 +63,17 @@ jobs:
           ExecStart=-/sbin/agetty --autologin user --noclear %I $TERM
           GETTY
 
+          # Auto start graphical interface for user
+          echo "exec startx" >> /home/user/.bashrc
+          chown user:sudo /home/user/.bashrc
+
           EOF
 
           sudo umount -f build/rootfs/dev || true
           sudo umount -f build/rootfs/proc || true
           sudo umount -f build/rootfs/sys || true
 
-      - name: Build ISO Image
+      - name: Build Fast Graphical ISO
         run: |
           mkdir -p build/iso/boot/grub
           mkdir -p build/iso/live
@@ -87,18 +91,18 @@ jobs:
           set default=0
           set gfxpayload=800x600
 
-          menuentry "LumixOS (Bazzite-Style Express)" {
+          menuentry "LumixOS (Bazzite Desktop Mode)" {
               linux /live/vmlinuz boot=live nomodeset noapic nolapic nowatchdog nmi_watchdog=0 tsc=reliable clocksource=hpet
               initrd /live/initrd.img
           }
           EOF
 
           sudo chmod -R 777 build/iso
-          grub-mkrescue -o LumixOS-BazziteEdition.iso build/iso
+          grub-mkrescue -o LumixOS-BazziteDesktop.iso build/iso
 
-      - name: Release LumixOS Bazzite ISO
+      - name: Release LumixOS Bazzite Desktop ISO
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v1.0-bazzite-${{ github.run_number }}"
-          gh release create "$TAG_NAME" LumixOS-BazziteEdition.iso --title "LumixOS Bazzite Edition" --notes "Bazzite-style ultra-fast ISO for Limbo"
+          TAG_NAME="v1.0-bazzite-gui-${{ github.run_number }}"
+          gh release create "$TAG_NAME" LumixOS-BazziteDesktop.iso --title "LumixOS Bazzite Desktop Edition" --notes "Graphical Bazzite-style ISO optimized for Limbo"
