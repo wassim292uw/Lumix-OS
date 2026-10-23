@@ -27,7 +27,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Configure Live Boot & Setup Wizard
+    - name: Configure System & Setup Wizard
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,17 +37,14 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
 
-        # تثبيت حزم الإقلاع الحي والنواة لبيان الرسمية
         apt-get install -y --no-install-recommends \
           systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
           whiptail python3 sudo locales tzdata nano
 
-        # إعداد المستخدم والتأكد من إمكانية الدخول
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # إنشاء معالج الترحيب
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -56,20 +53,19 @@ jobs:
         NAME_FILE="$CONFIG_DIR/username"
 
         if [ ! -f "$NAME_FILE" ]; then
-            U_NAME=$(whiptail --title "LumixOS Setup" --inputbox "أهلاً بك يا وسيم في نظامك الخاص LumixOS!\nأدخل اسمك لتخصيص الواجهة:" 10 50 "وسيم" 3>&1 1>&2 2>&3)
-            if [ -z "$U_NAME" ]; then U_NAME="وسيم"; fi
+            U_NAME=$(whiptail --title "LumixOS Setup" --inputbox "Welcome WASSIM to LumixOS!\nEnter your name:" 10 50 "WASSIM" 3>&1 1>&2 2>&3)
+            if [ -z "$U_NAME" ]; then U_NAME="WASSIM"; fi
             echo "$U_NAME" > "$NAME_FILE"
         fi
 
         USER_NAME=$(cat "$NAME_FILE")
-        whiptail --msgbox "مبارك يا $USER_NAME!\nتم تشغيل نظام LumixOS بنجاح تام وبدون أخطاء." 10 50
+        whiptail --msgbox "Welcome $USER_NAME!\nLumixOS is ready!" 10 50
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
         echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
         chown -R user:sudo /home/user
 
-        # الدخول التلقائي
         mkdir -p /etc/systemd/system/getty@tty1.service.d/
         cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
         [Service]
@@ -102,7 +98,7 @@ jobs:
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # إعدادات boot=live القياسية
+        # إضافة vga=normal لإجبار وضع الشاشة النظيف
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
@@ -110,7 +106,7 @@ jobs:
 
         LABEL lumix
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 rootdelay=3 nopv noapic nolapic nomodeset
+          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 vga=normal quiet
         EOF
 
         sudo chmod -R 777 build/iso
@@ -120,11 +116,11 @@ jobs:
         genisoimage -R -J \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -o LumixOS-Stable.iso build/iso
+          -o LumixOS-VGA-Fix.iso build/iso
 
     - name: Release Stable ISO
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        TAG_NAME="v1.0-stable-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-Stable.iso --title "LumixOS 1.0 Stable Release" --notes "إصلاح رابط المستودعات والعودة للبناء الحي المستقر."
+        TAG_NAME="v1.0-vga-${{ github.run_number }}"
+        gh release create "$TAG_NAME" LumixOS-VGA-Fix.iso --title "LumixOS 1.0 Clean VGA Release" --notes "إصلاح شاشة العرض وإجبار وضع الـ VGA النظيف في Limbo."
