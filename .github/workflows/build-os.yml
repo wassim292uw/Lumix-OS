@@ -1,4 +1,4 @@
-name: Build LumixOS 1GB Full Feature Release
+name: Build LumixOS Graphical Desktop ISO
 
 on:
   push:
@@ -19,15 +19,15 @@ jobs:
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
+          debootstrap squashfs-tools genisoimage grub-pc-bin grub-common xorriso \
           curl git gh
 
-    - name: Create Full 1GB Debian RootFS
+    - name: Create Full Graphical RootFS
       run: |
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Install Complete System Packages & Setup Wizard
+    - name: Install Desktop Environment & Packages
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -37,7 +37,6 @@ jobs:
         set -e
         export DEBIAN_FRONTEND=noninteractive
 
-        # تفعيل مستودعات non-free و non-free-firmware رسمياً لتمكين تحميل جميع الحزم والتعريفات
         cat << 'SOURCES' > /etc/apt/sources.list
         deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
         deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
@@ -46,12 +45,11 @@ jobs:
 
         apt-get update
 
-        # تثبيت النواة وكل الحزم بسلاسة تامة
+        # تثبيت النواة، نظام التشغيل الحي، والواجهة الرسومية الخفيفة LXDE لتعمل بسلاسة على Limbo
         apt-get install -y \
           systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
-          whiptail python3 python3-pip sudo locales tzdata nano curl wget \
-          pciutils usbutils kmod udev procps net-tools iputils-ping \
-          firmware-linux firmware-misc-nonfree btrfs-progs xfsprogs e2fsprogs
+          lxde lightdm xserver-xorg-core xserver-xorg-video-vesa xserver-xorg-input-all \
+          python3 sudo locales tzdata nano curl wget pciutils usbutils
 
         mkdir -p /etc/initramfs-tools
         echo "COMPRESS=gzip" > /etc/initramfs-tools/initramfs.conf
@@ -60,38 +58,31 @@ jobs:
         systemctl mask Networking.service || true
         systemctl mask systemd-udev-settle.service || true
 
+        # إعداد المستخدم والتسجيل التلقائي على سطح المكتب الرسومي
         useradd -m -s /bin/bash -g sudo user
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # إعداد معالج الترحيب الخاص بك يا وسيم
-        mkdir -p /usr/local/bin/
-        cat << 'SETUP' > /usr/local/bin/lumix-setup
-        #!/bin/bash
-        CONFIG_DIR="$HOME/.config/lumix"
-        mkdir -p "$CONFIG_DIR"
-        NAME_FILE="$CONFIG_DIR/username"
+        # تفعيل الدخول التلقائي عبر LightDM لفتح سطح المكتب مباشرة
+        mkdir -p /etc/lightdm/lightdm.conf.d
+        cat << 'LGM' > /etc/lightdm/lightdm.conf.d/autologin.conf
+        [Seat:*]
+        autologin-user=user
+        autologin-user-timeout=0
+        LGM
 
-        if [ ! -f "$NAME_FILE" ]; then
-            U_NAME=$(whiptail --title "LumixOS Professional Setup" --inputbox "Welcome WASSIM to LumixOS Full Edition!\nEnter your name:" 10 50 "WASSIM" 3>&1 1>&2 2>&3)
-            if [ -z "$U_NAME" ]; then U_NAME="WASSIM"; fi
-            echo "$U_NAME" > "$NAME_FILE"
-        fi
-
-        USER_NAME=$(cat "$NAME_FILE")
-        whiptail --msgbox "Welcome $USER_NAME!\nLumixOS Full 1GB System is ready!" 10 50
-        SETUP
-        chmod +x /usr/local/bin/lumix-setup
-
-        echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
+        # رسالة ترحيب مخصصة لوسيم على سطح المكتب
+        mkdir -p /home/user/Desktop
+        cat << 'DESK' > /home/user/Desktop/Welcome.desktop
+        [Desktop Entry]
+        Type=Application
+        Name=Welcome Wassim
+        Exec=xterm -e "echo 'Welcome WASSIM to LumixOS Graphical Edition!' && read"
+        Icon=system-run
+        Terminal=true
+        DESK
+        chmod +x /home/user/Desktop/Welcome.desktop
         chown -R user:sudo /home/user
-
-        mkdir -p /etc/systemd/system/getty@tty1.service.d/
-        cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
-        [Service]
-        ExecStart=
-        ExecStart=-/sbin/agetty --autologin user --noclear %I $TERM
-        GETTY
 
         echo "lumixos" > /etc/hostname
         apt-get clean
@@ -102,10 +93,10 @@ jobs:
         sudo umount -f build/rootfs/proc || true
         sudo umount -f build/rootfs/sys || true
 
-    - name: Prepare ISO Structure
+    - name: Prepare GRUB ISO Structure
       run: |
+        mkdir -p build/iso/boot/grub
         mkdir -p build/iso/live
-        mkdir -p build/iso/isolinux
 
         K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
         I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
@@ -115,31 +106,31 @@ jobs:
 
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
-        sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
-        sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
+        # إعداد ملف التكوين لقائمة GRUB الرسومية الاحترافية
+        cat << 'EOF' > build/iso/boot/grub/grub.cfg
+        set timeout=5
+        set default=0
 
-        cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
-        DEFAULT lumix
-        PROMPT 0
-        TIMEOUT 10
+        menuentry "Try or Install LumixOS (Graphical Desktop)" {
+            linux /live/vmlinuz boot=live quiet splash nomodeset noapic nolapic
+            initrd /live/initrd.img
+        }
 
-        LABEL lumix
-          KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 nomodeset noapic nolapic
+        menuentry "LumixOS (Safe Graphics / VESA Mode)" {
+            linux /live/vmlinuz boot=live nomodeset xforcevesa
+            initrd /live/initrd.img
+        }
         EOF
 
         sudo chmod -R 777 build/iso
 
-    - name: Generate Full 1GB ISO
+    - name: Generate Final Bootable GRUB ISO
       run: |
-        genisoimage -R -J \
-          -b isolinux/isolinux.bin -c isolinux/boot.cat \
-          -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -o LumixOS-Full-1GB.iso build/iso
+        grub-mkrescue -o LumixOS-Graphical.iso build/iso
 
-    - name: Release Full 1GB ISO
+    - name: Release Graphical ISO
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        TAG_NAME="v1.0-full-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-Full-1GB.iso --title "LumixOS 1.0 Full 1GB Feature Release" --notes "نسخة كاملة وضخمة تحتوي على كافة ملفات وحزم نظام دبيان بحجم يقارب 1GB مع تفعيل مستودعات التعريفات."
+        TAG_NAME="v1.0-graphical-${{ github.run_number }}"
+        gh release create "$TAG_NAME" LumixOS-Graphical.iso --title "LumixOS 1.0 Graphical Desktop Release" --notes "نسخة رسومية احترافية مع قائمة إقلاع GRUB وسطح مكتب LXDE متكامل."
