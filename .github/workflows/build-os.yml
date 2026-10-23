@@ -25,7 +25,6 @@ jobs:
     - name: Create Full 1GB Debian RootFS
       run: |
         mkdir -p build/rootfs
-        # بناء نظام دبيان الكامل بدون تقليص (Full debootstrap) للحصول على كافة ملفات النظام
         sudo debootstrap --arch=i386 bookworm build/rootfs http://deb.debian.org/debian/
 
     - name: Install Complete System Packages & Setup Wizard
@@ -40,14 +39,12 @@ jobs:
 
         echo "COMPRESS=gzip" >> /etc/initramfs-tools/initramfs.conf
 
-        # تثبيت النواة وكل حزم النظام والأدوات والمكتبات الشاملة ليصل الحجم إلى 1GB مليء بالمميزات
         apt-get install -y \
           systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
           whiptail python3 python3-pip sudo locales tzdata nano curl wget \
           pciutils usbutils kmod udev procps net-tools iputils-ping \
           firmware-linux firmware-misc-nonfree btrfs-progs xfsprogs e2fsprogs
 
-        # تعطيل خدمات الانتظار للشبكة لضمان السرعة الفائقة
         systemctl mask systemd-networkd-wait-online.service || true
         systemctl mask Networking.service || true
         systemctl mask systemd-udev-settle.service || true
@@ -56,7 +53,6 @@ jobs:
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-        # إنشاء معالج الترحيب التفاعلي باسمك
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -78,7 +74,6 @@ jobs:
         echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
         chown -R user:sudo /home/user
 
-        # إعداد تسجيل الدخول التلقائي السريع على tty1
         mkdir -p /etc/systemd/system/getty@tty1.service.d/
         cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
         [Service]
@@ -100,13 +95,10 @@ jobs:
         mkdir -p build/iso/live
         mkdir -p build/iso/isolinux
 
-        K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
-        I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
+        # النسخ المباشر المضمون لملفات النواة
+        sudo cp -L build/rootfs/boot/vmlinuz-* build/iso/live/vmlinuz
+        sudo cp -L build/rootfs/boot/initrd.img-* build/iso/live/initrd.img
 
-        sudo cp -L "$K_FILE" build/iso/live/vmlinuz
-        sudo cp -L "$I_FILE" build/iso/live/initrd.img
-
-        # ضغط نظام الملفات الشامل (سيكون بحجم ضخم وغني بكافة الملفات)
         sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 128k
 
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
