@@ -1,4 +1,4 @@
-name: Build LumixOS Instant Boot Release
+name: Build LumixOS Limbo Optimized
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Disable Network Waiting & Configure Instant Boot
+    - name: Configure Instant Auto-Login & Setup Wizard
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -43,7 +43,7 @@ jobs:
           systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
           whiptail python3 sudo locales tzdata nano
 
-        # إيقاف جميع خدمات الانتظار للشبكة لضمان السرعة الفائقة
+        # تعطيل جميع خدمات الانتظار
         systemctl mask systemd-networkd-wait-online.service || true
         systemctl mask Networking.service || true
         systemctl mask systemd-udev-settle.service || true
@@ -52,6 +52,7 @@ jobs:
         passwd -d user
         echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
+        # إنشاء سكربت الترحيب
         mkdir -p /usr/local/bin/
         cat << 'SETUP' > /usr/local/bin/lumix-setup
         #!/bin/bash
@@ -66,13 +67,14 @@ jobs:
         fi
 
         USER_NAME=$(cat "$NAME_FILE")
-        whiptail --msgbox "Welcome $USER_NAME!\nLumixOS is ready!" 10 50
+        whiptail --msgbox "Welcome $USER_NAME!\nLumixOS booted successfully!" 10 50
         SETUP
         chmod +x /usr/local/bin/lumix-setup
 
         echo "/usr/local/bin/lumix-setup" >> /home/user/.bashrc
         chown -R user:sudo /home/user
 
+        # تسجيل الدخول التلقائي
         mkdir -p /etc/systemd/system/getty@tty1.service.d/
         cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
         [Service]
@@ -105,15 +107,14 @@ jobs:
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # التجاوز الفوري لأي انتظار أثناء الإقلاع
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
-        TIMEOUT 1
+        TIMEOUT 10
 
         LABEL lumix
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 systemd.mask=systemd-udev-settle.service quiet
+          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 nomodeset noapic nolapic
         EOF
 
         sudo chmod -R 777 build/iso
@@ -123,11 +124,11 @@ jobs:
         genisoimage -R -J \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -o LumixOS-Instant.iso build/iso
+          -o LumixOS-Limbo.iso build/iso
 
-    - name: Release Instant ISO
+    - name: Release ISO
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        TAG_NAME="v1.0-instant-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-Instant.iso --title "LumixOS 1.0 Instant Boot Release" --notes "إلغاء جميع مهل شبكة النظام للدخول الفوري للشاشة."
+        TAG_NAME="v1.0-limbo-${{ github.run_number }}"
+        gh release create "$TAG_NAME" LumixOS-Limbo.iso --title "LumixOS 1.0 Limbo Optimized" --notes "نسخة محسنة بالكامل لتتوافق مع إعدادات Limbo."
