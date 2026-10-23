@@ -1,4 +1,4 @@
-name: Build Custom Boot LumixOS ISO
+name: Build Optimized LumixOS ISO
 
 on:
   push:
@@ -15,43 +15,90 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Tools
+      - name: Install Building Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso mtools grub-pc-bin grub-common wget squashfs-tools
+          sudo apt-get install -y debootstrap squashfs-tools grub-pc-bin grub-common xorriso mtools wget
 
-      - name: Download Base Boot ISO
+      - name: Create Minimal RootFS
         run: |
-          mkdir -p build/work
-          # تحميل ملحقات وإعدادات البوت الجاهزة من دبيان/زورين الخفيفة
-          wget -O build/work/base.iso https://cdimage.debian.org/debian-cd/current/i386/iso-cd/debian-12.8.0-i386-netinst.iso || \
-          wget -O build/work/base.iso https://cdimage.debian.org/cdimage/archive/12.5.0/i386/iso-cd/debian-12.5.0-i386-netinst.iso
+          mkdir -p build/rootfs
+          sudo debootstrap --variant=minbase --arch=i386 bookworm build/rootfs http://deb.debian.org/debian/
 
-      - name: Extract ISO and Modify GRUB Config
+      - name: Strip Unnecessary Packages and Optimize
         run: |
-          mkdir -p build/iso
-          xorriso -osirrox on -indev build/work/base.iso -extract / build/iso/
-          chmod -R +w build/iso/
+          sudo mount --bind /dev build/rootfs/dev
+          sudo mount --bind /proc build/rootfs/proc
+          sudo mount --bind /sys build/rootfs/sys
 
-          # إنشاء ملف boot مخصص وسريع جداً لـ Limbo
+          cat << 'EOF' | sudo chroot build/rootfs /bin/bash
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+
+          cat << 'SOURCES' > /etc/apt/sources.list
+          deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
+          SOURCES
+
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
+            sudo nano bash-completion htop
+
+          # Remove bloat and docs to make it super fast
+          rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/*
+          apt-get clean
+          rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+          # Configure user
+          useradd -m -s /bin/bash -g sudo user
+          passwd -d user
+          echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+          echo "lumixos" > /etc/hostname
+
+          # Autologin TTY
+          mkdir -p /etc/systemd/system/getty@tty1.service.d/
+          cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
+          [Service]
+          ExecStart=
+          ExecStart=-/sbin/agetty --autologin user --noclear %I $TERM
+          GETTY
+
+          EOF
+
+          sudo umount -f build/rootfs/dev || true
+          sudo umount -f build/rootfs/proc || true
+          sudo umount -f build/rootfs/sys || true
+
+      - name: Build Optimized ISO
+        run: |
           mkdir -p build/iso/boot/grub
-          cat << 'EOF' > build/iso/boot/grub/grub.cfg
-          set timeout=2
-          set default=0
+          mkdir -p build/iso/live
 
-          menuentry "LumixOS Fast Edition (Welcome WASSIM)" {
-              linux /install.386/vmlinuz boot=live nomodeset noapic nolapic nowatchdog nmi_watchdog=0 tsc=reliable clocksource=hpet vga=788
-              initrd /install.386/initrd.gz
+          K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
+          I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
+
+          sudo cp -L "$K_FILE" build/iso/live/vmlinuz
+          sudo cp -L "$I_FILE" build/iso/live/initrd.img
+
+          sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 256k
+
+          cat << 'EOF' > build/iso/boot/grub/grub.cfg
+          set timeout=1
+          set default=0
+          set gfxpayload=800x600
+
+          menuentry "LumixOS Optimized Boot" {
+              linux /live/vmlinuz boot=live nomodeset noapic nolapic nowatchdog nmi_watchdog=0 tsc=reliable clocksource=hpet
+              initrd /live/initrd.img
           }
           EOF
 
-      - name: Rebuild Custom LumixOS ISO
-        run: |
-          grub-mkrescue -o LumixOS-CustomBoot.iso build/iso
+          sudo chmod -R 777 build/iso
+          grub-mkrescue -o LumixOS-Lite.iso build/iso
 
-      - name: Release LumixOS Custom ISO
+      - name: Release LumixOS Lite ISO
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v1.0-custom-${{ github.run_number }}"
-          gh release create "$TAG_NAME" LumixOS-CustomBoot.iso --title "LumixOS Custom Boot Edition" --notes "Customized Boot ISO optimized for Limbo"
+          TAG_NAME="v1.0-lite-${{ github.run_number }}"
+          gh release create "$TAG_NAME" LumixOS-Lite.iso --title "LumixOS Ultra-Lite Edition" --notes "Stripped and optimized ultra-fast boot ISO"
