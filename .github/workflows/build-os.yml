@@ -1,4 +1,4 @@
-name: Build LumixOS Stable Release
+name: Build LumixOS RAM-Optimized Release
 
 on:
   push:
@@ -22,12 +22,12 @@ jobs:
           debootstrap squashfs-tools genisoimage isolinux syslinux-common syslinux-utils \
           curl git gh
 
-    - name: Create Base RootFS
+    - name: Create Minimal RootFS
       run: |
         mkdir -p build/rootfs
         sudo debootstrap --arch=i386 --variant=minbase bookworm build/rootfs http://deb.debian.org/debian/
 
-    - name: Configure System & Setup Wizard
+    - name: Configure System & Tiny Initramfs
       run: |
         sudo mount --bind /dev build/rootfs/dev
         sudo mount --bind /proc build/rootfs/proc
@@ -36,6 +36,10 @@ jobs:
         cat << 'EOF' | sudo chroot build/rootfs /bin/bash
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
+
+        # ضبط ضغط initramfs ليكون خفيفاً وسريعاً جداً على الـ RAM
+        echo "COMPRESS=gzip" >> /etc/initramfs-tools/initramfs.conf
+        echo "MODULES=most" >> /etc/initramfs-tools/initramfs.conf
 
         apt-get install -y --no-install-recommends \
           systemd-sysv init linux-image-686-pae live-boot live-boot-initramfs-tools \
@@ -98,7 +102,6 @@ jobs:
         sudo cp /usr/lib/ISOLINUX/isolinux.bin build/iso/isolinux/
         sudo cp /usr/lib/syslinux/modules/bios/*.c32 build/iso/isolinux/ || true
 
-        # إضافة vga=normal لإجبار وضع الشاشة النظيف
         cat << 'EOF' | sudo tee build/iso/isolinux/isolinux.cfg
         DEFAULT lumix
         PROMPT 0
@@ -106,7 +109,7 @@ jobs:
 
         LABEL lumix
           KERNEL /live/vmlinuz
-          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 vga=normal quiet
+          APPEND initrd=/live/initrd.img boot=live username=user console=tty1 quiet
         EOF
 
         sudo chmod -R 777 build/iso
@@ -116,11 +119,11 @@ jobs:
         genisoimage -R -J \
           -b isolinux/isolinux.bin -c isolinux/boot.cat \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
-          -o LumixOS-VGA-Fix.iso build/iso
+          -o LumixOS-Lite.iso build/iso
 
-    - name: Release Stable ISO
+    - name: Release Lite ISO
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        TAG_NAME="v1.0-vga-${{ github.run_number }}"
-        gh release create "$TAG_NAME" LumixOS-VGA-Fix.iso --title "LumixOS 1.0 Clean VGA Release" --notes "إصلاح شاشة العرض وإجبار وضع الـ VGA النظيف في Limbo."
+        TAG_NAME="v1.0-lite-${{ github.run_number }}"
+        gh release create "$TAG_NAME" LumixOS-Lite.iso --title "LumixOS 1.0 RAM-Optimized Release" --notes "تقليل حجم initramfs وحل مشكلة الـ RAM write error."
