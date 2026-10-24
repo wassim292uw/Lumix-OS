@@ -1,117 +1,275 @@
-name: Build LumixOS x64 Edition
+name: Build LumixOS ISO
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: write
 
 jobs:
-  build:
+  build-lumixos:
+    name: Build LumixOS x64 live ISO
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    timeout-minutes: 120
+
+    env:
+      DEBIAN_RELEASE: bookworm
+      ARCH: amd64
+      ROOTFS_DIR: ${{ runner.temp }}/lumixos-rootfs
+      ISO_ROOT: ${{ runner.temp }}/lumixos-iso
+      DIST_DIR: ${{ github.workspace }}/dist
+      ISO_NAME: LumixOS-x64.iso
+      RELEASE_TAG: v1.0-x64-${{ github.run_number }}
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Building Tools
+      - name: Install host build dependencies
+        shell: bash
         run: |
+          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y debootstrap squashfs-tools grub-pc-bin grub-common xorriso mtools
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            debootstrap \
+            squashfs-tools \
+            grub-pc-bin \
+            grub-common \
+            xorriso \
+            mtools \
+            dosfstools \
+            ca-certificates \
+            wget \
+            curl \
+            git
+          mkdir -p "$DIST_DIR" "$ISO_ROOT"
 
-      - name: Create 64-bit Base RootFS
+      - name: Bootstrap Debian Bookworm base
+        shell: bash
         run: |
-          mkdir -p build/rootfs
-          sudo debootstrap --variant=minbase --arch=amd64 bookworm build/rootfs http://deb.debian.org/debian/
+          set -euxo pipefail
+          sudo rm -rf "$ROOTFS_DIR"
+          sudo debootstrap --arch="$ARCH" --variant=minbase "$DEBIAN_RELEASE" "$ROOTFS_DIR" http://deb.debian.org/debian
 
-      - name: Configure LumixOS x64 System
-        run: |
-          sudo mount --bind /dev build/rootfs/dev
-          sudo mount --bind /proc build/rootfs/proc
-          sudo mount --bind /sys build/rootfs/sys
-
-          cat << 'EOF' | sudo chroot build/rootfs /bin/bash
-          set -e
-          export DEBIAN_FRONTEND=noninteractive
-
-          cat << 'SOURCES' > /etc/apt/sources.list
-          deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
-          SOURCES
-
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            systemd-sysv init linux-image-amd64 live-boot live-boot-initramfs-tools \
-            sudo nano htop bash-completion dialog
-
-          # Clean up docs
-          rm -rf /usr/share/doc/* /usr/share/man/*
-          apt-get clean
-          rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-          # Configure User & Hostname
-          useradd -m -s /bin/bash -g sudo user
-          passwd -d user
-          echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-          echo "lumixos-x64" > /etc/hostname
-
-          # Enable Autologin for TTY Console
-          mkdir -p /etc/systemd/system/getty@tty1.service.d/
-          cat << 'GETTY' > /etc/systemd/system/getty@tty1.service.d/override.conf
-          [Service]
-          ExecStart=
-          ExecStart=-/sbin/agetty --autologin user --noclear %I $TERM
-          GETTY
-
-          # Custom Welcome Banner
-          cat << 'WELCOME' >> /home/user/.bashrc
-          clear
-          echo "========================================================"
-          echo "         Welcome to LumixOS x64 Express Edition!        "
-          echo "========================================================"
-          echo "  64-bit System Loaded Successfully in Limbo x64!       "
-          echo "  Type 'sudo htop' to inspect system memory.           "
-          echo "========================================================"
-          echo ""
-          WELCOME
-          chown user:sudo /home/user/.bashrc
-
+          sudo tee "$ROOTFS_DIR/etc/apt/sources.list" > /dev/null <<EOF
+          deb http://deb.debian.org/debian bookworm main
+          deb http://deb.debian.org/debian bookworm-updates main
+          deb http://security.debian.org/debian-security bookworm/updates main
           EOF
 
-          sudo umount -f build/rootfs/dev || true
-          sudo umount -f build/rootfs/proc || true
-          sudo umount -f build/rootfs/sys || true
-
-      - name: Build Fast 64-bit ISO
+      - name: Configure Debian rootfs and install live system packages
+        shell: bash
         run: |
-          mkdir -p build/iso/boot/grub
-          mkdir -p build/iso/live
+          set -euxo pipefail
 
-          K_FILE=$(sudo find build/rootfs/boot/ -type f -name "vmlinuz*" | head -n 1)
-          I_FILE=$(sudo find build/rootfs/boot/ -type f -name "initrd*" | head -n 1)
+          sudo chroot "$ROOTFS_DIR" /bin/bash -lc "
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              systemd-sysv \
+              sudo \
+              locales \
+              ca-certificates \
+              bash \
+              netbase \
+              iproute2 \
+              dbus \
+              linux-image-amd64 \
+              live-boot \
+              live-boot-initramfs-tools \
+              squashfs-tools \
+              grub-pc-bin \
+              grub-common \
+              xorriso \
+              mtools
+          "
 
-          sudo cp -L "$K_FILE" build/iso/live/vmlinuz
-          sudo cp -L "$I_FILE" build/iso/live/initrd.img
+          sudo mkdir -p "$ROOTFS_DIR/etc/systemd/system/getty@tty1.service.d"
+          sudo mkdir -p "$ROOTFS_DIR/etc/profile.d"
+          sudo mkdir -p "$ROOTFS_DIR/etc/sudoers.d"
+          sudo mkdir -p "$ROOTFS_DIR/home/user"
+          sudo mkdir -p "$ROOTFS_DIR/var/lib/lumixos"
 
-          sudo mksquashfs build/rootfs build/iso/live/filesystem.squashfs -comp gzip -b 256k
+      - name: Configure hostname, locale, passwordless sudo user, and autologin
+        shell: bash
+        run: |
+          set -euxo pipefail
 
-          cat << 'EOF' > build/iso/boot/grub/grub.cfg
-          set timeout=1
+          sudo tee "$ROOTFS_DIR/etc/hostname" > /dev/null <<'EOF'
+          lumixos
+          EOF
+
+          sudo tee "$ROOTFS_DIR/etc/hosts" > /dev/null <<'EOF'
+          127.0.0.1 localhost
+          127.0.1.1 lumixos
+
+          # The following lines are desirable for IPv6 capable hosts
+          ::1 localhost ip6-localhost ip6-loopback
+          ff02::1 ip6-allnodes
+          ff02::2 ip6-allrouters
+          EOF
+
+          sudo chroot "$ROOTFS_DIR" /bin/bash -lc "
+            export DEBIAN_FRONTEND=noninteractive
+            if ! getent group sudo >/dev/null; then
+              groupadd sudo
+            fi
+            useradd --create-home --shell /bin/bash user
+            usermod -aG sudo user
+            echo 'user:lumixos' | chpasswd
+            echo 'user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/user
+            chmod 440 /etc/sudoers.d/user
+            echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen
+            locale-gen
+            echo 'LANG=en_US.UTF-8' > /etc/default/locale
+          "
+
+          sudo tee "$ROOTFS_DIR/etc/systemd/system/getty@tty1.service.d/autologin.conf" > /dev/null <<'EOF'
+          [Service]
+          ExecStart=
+          ExecStart=-/sbin/agetty --autologin user --noclear --keep-baud tty1 38400 linux
+          EOF
+
+          sudo tee "$ROOTFS_DIR/etc/profile.d/lumixos-first-boot.sh" > /dev/null <<'EOF'
+          #!/bin/bash
+
+          if [ -f /var/lib/lumixos/first-boot-complete ]; then
+            return 0 2>/dev/null || exit 0
+          fi
+
+          touch /var/lib/lumixos/first-boot-complete
+
+          echo ""
+          echo "==============================================="
+          echo "Welcome to LumixOS - Debian Bookworm Live System"
+          echo "==============================================="
+          echo ""
+
+          read -r -p "Enter your preferred name [Waseem]: " display_name
+          display_name="${display_name:-Waseem}"
+          printf '%s\n' "$display_name" > /etc/lumixos-name
+
+          echo "Hello ${display_name}! Welcome to LumixOS."
+
+          read -r -p "Set a custom password for user? [Y/n]: " set_password
+          case "${set_password:-Y}" in
+            y|Y|yes|YES)
+              passwd user
+              ;;
+            *)
+              echo "Skipping password setup. You can create one later with: passwd user"
+              ;;
+          esac
+
+          read -r -p "Select language preference [en/fr/es]: " lang_choice
+          case "${lang_choice:-en}" in
+            en|EN)
+              export LANG=en_US.UTF-8
+              ;;
+            fr|FR)
+              export LANG=fr_FR.UTF-8
+              ;;
+            es|ES)
+              export LANG=es_ES.UTF-8
+              ;;
+            *)
+              export LANG=en_US.UTF-8
+              ;;
+          esac
+
+          echo "export LANG=${LANG}" >> /home/user/.bashrc
+          echo "export PS1='\\u@lumixos: \\w\\$ '" >> /home/user/.bashrc
+
+          echo ""
+          echo "LumixOS setup complete!"
+          echo "Useful commands: sudo apt update, sudo apt upgrade, passwd user"
+          EOF
+          sudo chmod 755 "$ROOTFS_DIR/etc/profile.d/lumixos-first-boot.sh"
+
+          sudo tee "$ROOTFS_DIR/home/user/.bashrc" > /dev/null <<'EOF'
+          if [ -f /etc/profile.d/lumixos-first-boot.sh ]; then
+            . /etc/profile.d/lumixos-first-boot.sh
+          fi
+          EOF
+
+          sudo chown -R 1000:1000 "$ROOTFS_DIR/home/user"
+
+          sudo tee "$ROOTFS_DIR/etc/profile" > /dev/null <<'EOF'
+          # /etc/profile: system-wide .profile file for the Bourne shell (sh(1))
+          # and Bourne compatible shells (bash(1), ksh(1), ash(1)).
+
+          if [ -d /etc/profile.d ]; then
+            for i in /etc/profile.d/*.sh; do
+              if [ -r "$i" ]; then
+                . "$i"
+              fi
+            done
+            unset i
+          fi
+          EOF
+
+      - name: Create GRUB live ISO boot configuration
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          sudo mkdir -p "$ROOTFS_DIR/boot/grub"
+          sudo tee "$ROOTFS_DIR/boot/grub/grub.cfg" > /dev/null <<'EOF'
           set default=0
-          set gfxpayload=800x600
+          set timeout=3
+          set root=(cd)
 
-          menuentry "LumixOS (x64 Express Boot)" {
-              linux /live/vmlinuz boot=live nomodeset noapic nolapic nowatchdog nmi_watchdog=0 tsc=reliable clocksource=hpet
+          menuentry "LumixOS Live (x64)" {
+              linux /live/vmlinuz boot=live nomodeset vga=normal console=tty0
               initrd /live/initrd.img
           }
           EOF
 
-          sudo chmod -R 777 build/iso
-          grub-mkrescue -o LumixOS-x64-Fast.iso build/iso
+          sudo mkdir -p "$ISO_ROOT/live" "$ISO_ROOT/boot/grub"
+          sudo cp "$ROOTFS_DIR/boot/grub/grub.cfg" "$ISO_ROOT/boot/grub/grub.cfg"
 
-      - name: Release LumixOS 64-bit ISO
+          KERNEL_PATH=$(sudo find "$ROOTFS_DIR/boot" -maxdepth 1 -type f -name 'vmlinuz-*' | head -n 1)
+          INITRD_PATH=$(sudo find "$ROOTFS_DIR/boot" -maxdepth 1 -type f -name 'initrd.img-*' | head -n 1)
+
+          if [ -z "$KERNEL_PATH" ] || [ -z "$INITRD_PATH" ]; then
+            echo "Kernel or initrd not found in $ROOTFS_DIR/boot" >&2
+            exit 1
+          fi
+
+          sudo cp "$KERNEL_PATH" "$ISO_ROOT/live/vmlinuz"
+          sudo cp "$INITRD_PATH" "$ISO_ROOT/live/initrd.img"
+
+          sudo mksquashfs "$ROOTFS_DIR" "$ISO_ROOT/live/filesystem.squashfs" -noappend -comp xz -b 1048576
+
+      - name: Generate bootable ISO image
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grub-mkrescue -o "$DIST_DIR/$ISO_NAME" "$ISO_ROOT" -- -volid LumixOS
+          ls -lh "$DIST_DIR"
+
+      - name: Create GitHub Release and upload ISO asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          TAG_NAME="v1.0-x64-${{ github.run_number }}"
-          gh release create "$TAG_NAME" LumixOS-x64-Fast.iso --title "LumixOS 64-bit Edition" --notes "Ultra-fast 64-bit ISO built for Limbo x64"
+          set -euxo pipefail
+          gh release create "$RELEASE_TAG" "$DIST_DIR/$ISO_NAME" \
+            --title "LumixOS x64 ${RELEASE_TAG}" \
+            --notes "LumixOS Debian Bookworm live ISO built for Limbo x86/x64 emulation. Includes text-mode boot config, autologin on tty1, and custom first-boot setup." \
+            --generate-notes
+
+      - name: Upload ISO as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LumixOS-x64-iso
+          path: ${{ github.workspace }}/dist/LumixOS-x64.iso
+          if-no-files-found: error
