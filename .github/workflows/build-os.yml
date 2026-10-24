@@ -1,5 +1,4 @@
 name: Build Full LumixOS x64 Professional Distribution ISO
-
 on:
   push:
     branches: [ "main" ]
@@ -152,25 +151,26 @@ jobs:
 
           echo "Squashfs generation complete."
           ls -lh /tmp/lumix_pro_build/iso/live/filesystem.squashfs
-
-      - name: Generate Advanced GRUB Configuration for Limbo
+- name: Generate Advanced GRUB Configuration for Limbo
         run: |
           echo "Writing robust grub.cfg to prevent black screen issues..."
           cat << 'EOF' > /tmp/lumix_pro_build/iso/boot/grub/grub.cfg
           set default=0
-          set timeout=5
+          set timeout=3
 
           insmod part_msdos
           insmod ext2
           insmod all_video
 
           menuentry "LumixOS (x64 Professional Express Boot)" {
-              linux /live/vmlinuz boot=live quiet nomodeset vga=normal console=tty0
+              set gfxpayload=text
+              linux /live/vmlinuz boot=live quiet nomodeset console=tty0
               initrd /live/initrd.img
           }
 
           menuentry "LumixOS (x64 Safe Recovery Mode)" {
-              linux /live/vmlinuz boot=live nomodeset xforcevesa vga=788 console=tty0 single
+              set gfxpayload=text
+              linux /live/vmlinuz boot=live nomodeset xforcevesa console=tty0 single
               initrd /live/initrd.img
           }
           EOF
