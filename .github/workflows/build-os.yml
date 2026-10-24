@@ -1,4 +1,5 @@
 name: Build Full LumixOS x64 Professional Distribution ISO
+
 on:
   push:
     branches: [ "main" ]
@@ -94,7 +95,7 @@ jobs:
           iface eth0 inet dhcp
           NETEOF
 
-          # Create user Waseem and root accounts with secure defaults
+          # Create user accounts with secure defaults
           useradd -m -s /bin/bash user
           echo "user:user" | chpasswd
           echo "root:root" | chpasswd
@@ -138,7 +139,7 @@ jobs:
           sudo cp "$KERNEL_FILE" /tmp/lumix_pro_build/iso/live/vmlinuz
           sudo cp "$INITRD_FILE" /tmp/lumix_pro_build/iso/live/initrd.img
 
-- name: Compress Root Filesystem into Squashfs
+      - name: Compress Root Filesystem into Squashfs
         run: |
           echo "Compressing rootfs into squashfs archive..."
           sudo mksquashfs \
@@ -180,7 +181,7 @@ jobs:
       - name: Package Final ISO Image with Grub Rescue
         run: |
           echo "Building final bootable ISO image..."
-          grub-mkrescue \
+          sudo grub-mkrescue \
             -o LumixOS-x64-Professional.iso \
             /tmp/lumix_pro_build/iso
 
