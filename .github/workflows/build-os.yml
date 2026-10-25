@@ -18,55 +18,22 @@ jobs:
       - name: Checkout Repository Source
         uses: actions/checkout@v4
 
-      - name: System Environment Diagnostics and Information
-        run: |
-          echo "=========================================="
-          echo " Starting LumixOS Professional Build System"
-          echo " Architecture: x86_64 / amd64"
-          echo " Target Emulator: Limbo x86 PC Emulator"
-          echo "=========================================="
-          uname -a
-          df -h
-
-      - name: Install Comprehensive Toolchain and Dependencies
+      - name: Install Dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get upgrade -y
           sudo apt-get install -y --no-install-recommends \
-            debootstrap \
-            squashfs-tools \
-            grub-pc-bin \
-            grub-common \
-            xorriso \
-            mtools \
-            dosfstools \
-            syslinux \
-            syslinux-common \
-            syslinux-utils \
-            isolinux \
-            wget \
-            curl \
-            git \
-            rsync \
-            parted \
-            fdisk \
-            gawk \
-            coreutils \
-            findutils \
-            util-linux
+            debootstrap squashfs-tools grub-pc-bin grub-common \
+            xorriso mtools dosfstools isolinux syslinux-utils wget curl git
 
-      - name: Initialize Directory Structure Layout
+      - name: Setup Build Directories
         run: |
-          echo "Setting up secure build directories..."
           sudo rm -rf /tmp/lumix_pro_build
           mkdir -p /tmp/lumix_pro_build/rootfs
           mkdir -p /tmp/lumix_pro_build/iso/live
           mkdir -p /tmp/lumix_pro_build/iso/boot/grub
-          mkdir -p /tmp/lumix_pro_build/iso/isolinux
 
-      - name: Bootstrap Full Debian Bookworm Base System (amd64)
+      - name: Bootstrap Base System
         run: |
-          echo "Running debootstrap to install base operating system..."
           sudo debootstrap \
             --arch=amd64 \
             --variant=minbase \
@@ -75,91 +42,56 @@ jobs:
             /tmp/lumix_pro_build/rootfs \
             http://deb.debian.org/debian
 
-      - name: Configure Virtual Filesystems for Chroot Operations
+      - name: Configure System and Users
         run: |
           sudo mount --bind /dev /tmp/lumix_pro_build/rootfs/dev
           sudo mount --bind /proc /tmp/lumix_pro_build/rootfs/proc
           sudo mount --bind /sys /tmp/lumix_pro_build/rootfs/sys
 
-      - name: Configure Rootfs Internals, Users, and Interactive Setup
-        run: |
           sudo chroot /tmp/lumix_pro_build/rootfs /bin/bash << 'CHROOT_EOF'
           export DEBIAN_FRONTEND=noninteractive
-
-          # Set hostname
           echo "lumixos" > /etc/hostname
           echo "127.0.0.1 localhost lumixos" > /etc/hosts
 
-          # Configure networking interface defaults
-          cat << 'NETEOF' > /etc/network/interfaces
-          auto lo
-          iface lo inet loopback
-
-          auto eth0
-          iface eth0 inet dhcp
-          NETEOF
-
-          # Create user accounts with secure defaults
           useradd -m -s /bin/bash user
           echo "user:user" | chpasswd
           echo "root:root" | chpasswd
           echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-          # Create interactive custom welcome banner for login shell
           cat << 'BASHEOF' >> /home/user/.bashrc
           clear
           echo "================================================="
           echo "        Welcome to LumixOS x64 Pro v1.0          "
           echo "================================================="
-          echo " Platform: Optimized for Limbo Emulator x86/x64  "
-          echo " Developer: Wassim (11 years old prodigy)        "
-          echo " Status: Stable Text/Shell Environment Loaded    "
+          echo " Developer: Waseem                               "
+          echo " Status: Active Shell System                     "
           echo "================================================="
           BASHEOF
 
           chown -R user:user /home/user
           CHROOT_EOF
 
-      - name: Unmount Virtual Filesystems Safely
-        run: |
           sudo umount /tmp/lumix_pro_build/rootfs/dev || true
           sudo umount /tmp/lumix_pro_build/rootfs/proc || true
           sudo umount /tmp/lumix_pro_build/rootfs/sys || true
 
-      - name: Extract Kernel and Initrd Assets for Booting
+      - name: Extract Kernel and Initrd
         run: |
-          echo "Locating kernel and initrd images..."
           KERNEL_FILE=$(ls -1 /tmp/lumix_pro_build/rootfs/boot/vmlinuz-* | head -n 1)
           INITRD_FILE=$(ls -1 /tmp/lumix_pro_build/rootfs/boot/initrd.img-* | head -n 1)
-
-          if [ -z "$KERNEL_FILE" ] || [ -z "$INITRD_FILE" ]; then
-            echo "Error: Kernel or Initrd not found!"
-            exit 1
-          fi
-
-          echo "Found Kernel: $KERNEL_FILE"
-          echo "Found Initrd: $INITRD_FILE"
 
           sudo cp "$KERNEL_FILE" /tmp/lumix_pro_build/iso/live/vmlinuz
           sudo cp "$INITRD_FILE" /tmp/lumix_pro_build/iso/live/initrd.img
 
-      - name: Compress Root Filesystem into Squashfs
+      - name: Create Squashfs
         run: |
-          echo "Compressing rootfs into squashfs archive..."
           sudo mksquashfs \
             /tmp/lumix_pro_build/rootfs \
             /tmp/lumix_pro_build/iso/live/filesystem.squashfs \
-            -comp xz \
-            -b 1024k \
-            -e boot \
-            -no-progress
+            -comp xz -b 1024k -e boot -no-progress
 
-          echo "Squashfs generation complete."
-          ls -lh /tmp/lumix_pro_build/iso/live/filesystem.squashfs
-
-      - name: Generate Advanced GRUB Configuration for Limbo
+      - name: Configure Optimized GRUB for Limbo Emulator
         run: |
-          echo "Writing robust grub.cfg to prevent black screen issues..."
           sudo mkdir -p /tmp/lumix_pro_build/iso/boot/grub
           sudo bash -c "cat << 'EOF' > /tmp/lumix_pro_build/iso/boot/grub/grub.cfg
           set default=0
@@ -169,40 +101,34 @@ jobs:
           insmod ext2
           insmod all_video
 
-          menuentry \"LumixOS (x64 Professional Express Boot)\" {
+          menuentry \"LumixOS (Limbo Express Console)\" {
               set gfxpayload=text
-              linux /live/vmlinuz boot=live quiet nomodeset console=tty0
+              linux /live/vmlinuz boot=live quiet nomodeset console=tty0 console=ttyS0,115200n8 panic=10
               initrd /live/initrd.img
           }
 
-          menuentry \"LumixOS (x64 Safe Recovery Mode)\" {
+          menuentry \"LumixOS (Limbo Safe Mode)\" {
               set gfxpayload=text
               linux /live/vmlinuz boot=live nomodeset xforcevesa console=tty0 single
               initrd /live/initrd.img
           }
           EOF"
 
-      - name: Package Final ISO Image with Grub Rescue
+      - name: Package ISO Image
         run: |
-          echo "Building final bootable ISO image..."
-          sudo grub-mkrescue \
-            -o LumixOS-x64-Professional.iso \
-            /tmp/lumix_pro_build/iso
+          sudo grub-mkrescue -o LumixOS-x64-Professional.iso /tmp/lumix_pro_build/iso
 
-          echo "ISO generation successful. Verifying file size and integrity..."
-          ls -lh LumixOS-x64-Professional.iso
-
-      - name: Upload ISO Artifact to GitHub
+      - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
           name: LumixOS-x64-Professional-ISO
           path: LumixOS-x64-Professional.iso
 
-      - name: Publish Stable GitHub Release Automatically
+      - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v2.0-pro-${{ github.run_number }}"
+          TAG_NAME="v2.1-limbo-${{ github.run_number }}"
           gh release create "$TAG_NAME" LumixOS-x64-Professional.iso \
-            --title "LumixOS x64 Professional Release #${{ github.run_number }}" \
-            --notes "Comprehensive build featuring a full Debian debootstrap base, custom shell environment, and robust Limbo x86/x64 compatibility fixes."
+            --title "LumixOS x64 Limbo Optimized Release #${{ github.run_number }}" \
+            --notes "Optimized console video parameters for Limbo PC Emulator on Android."
