@@ -35,22 +35,31 @@ jobs:
 
       - name: Download Slax Base Engine Mapped Securely
         run: |
-          echo "Downloading Slax Base File..."
-          curl -sSL -o /tmp/slax_win11_build/download/slax.iso "https://download.slax.org/Slax-11.x/slax-64bit-11.4.0.iso" || \
-          wget -O /tmp/slax_win11_build/download/slax.iso "https://download.slax.org/slax-64bit-11.4.0.iso" || \
-          curl -sSL -o /tmp/slax_win11_build/download/slax.iso "https://archive.org/download/slax-64bit-11.4.0/slax-64bit-11.4.0.iso"
+          echo "Downloading official Slax ISO..."
+          wget -q --show-progress -O /tmp/slax_win11_build/download/slax.iso "https://ftp.sh.cvut.cz/slax/Slax-11.x/slax-64bit-11.4.0.iso" || \
+          curl -sSL -L -o /tmp/slax_win11_build/download/slax.iso "https://osdn.net/frs/g_redir.php?m=netcologne&f=slax%2FSlax-11.x%2Fslax-64bit-11.4.0.iso"
+          
+          # Check downloaded size
+          SIZE=$(stat -c%s "/tmp/slax_win11_build/download/slax.iso")
+          echo "Downloaded size: $SIZE bytes"
+          if [ "$SIZE" -lt 10000000 ]; then
+             echo "Error: Downloaded file is too small, fallback downloading..."
+             wget -O /tmp/slax_win11_build/download/slax.iso "https://archive.org/download/slax-64bit-11.4.0/slax-64bit-11.4.0.iso"
+          fi
           
           ls -lh /tmp/slax_win11_build/download/slax.iso
 
       - name: Extract Slax Components
         run: |
-          7z x /tmp/slax_win11_build/download/slax.iso -o/tmp/slax_win11_build/extracted/
+          sudo mkdir -p /tmp/slax_win11_build/mnt
+          sudo mount -o loop /tmp/slax_win11_build/download/slax.iso /tmp/slax_win11_build/mnt
 
-          cp /tmp/slax_win11_build/extracted/slax/boot/vmlinuz /tmp/slax_win11_build/iso/boot/vmlinuz
-          cp /tmp/slax_win11_build/extracted/slax/boot/initr2.img /tmp/slax_win11_build/iso/boot/initrd.img || \
-          cp /tmp/slax_win11_build/extracted/slax/boot/initrd.img /tmp/slax_win11_build/iso/boot/initrd.img
+          cp /tmp/slax_win11_build/mnt/slax/boot/vmlinuz /tmp/slax_win11_build/iso/boot/vmlinuz
+          cp /tmp/slax_win11_build/mnt/slax/boot/initr2.img /tmp/slax_win11_build/iso/boot/initrd.img || \
+          cp /tmp/slax_win11_build/mnt/slax/boot/initrd.img /tmp/slax_win11_build/iso/boot/initrd.img
 
-          cp -r /tmp/slax_win11_build/extracted/slax/* /tmp/slax_win11_build/iso/slax/
+          cp -r /tmp/slax_win11_build/mnt/slax/* /tmp/slax_win11_build/iso/slax/
+          sudo umount /tmp/slax_win11_build/mnt
 
       - name: Inject Custom Desktop Configuration
         run: |
@@ -106,7 +115,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v6.1-slax-win11-${{ github.run_number }}"
+          TAG_NAME="v6.2-slax-win11-${{ github.run_number }}"
           gh release create "$TAG_NAME" LumixOS-Slax-Win11-x64.iso \
             --title "LumixOS Slax-Win11 Hybrid Release #${{ github.run_number }}" \
             --notes "Fast Slax core engine loaded with Windows 11 layout and desktop configuration."
