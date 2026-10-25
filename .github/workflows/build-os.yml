@@ -18,11 +18,11 @@ jobs:
       - name: Checkout Repository Source
         uses: actions/checkout@v4
 
-      - name: Install ISO & Alpine Packaging Tools
+      - name: Install ISO & Packaging Tools
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            xorriso grub-pc-bin grub-common mtools squashfs-tools wget curl p7zip-full alpine-securerdb
+            xorriso grub-pc-bin grub-common mtools squashfs-tools wget curl p7zip-full
 
       - name: Prepare Workspace Directories
         run: |
@@ -30,18 +30,19 @@ jobs:
           mkdir -p /tmp/alpine_gui_build/iso/boot/grub
           mkdir -p /tmp/alpine_gui_build/iso/apks/x86_64
           mkdir -p /tmp/alpine_gui_build/download
+          mkdir -p /tmp/alpine_gui_build/custom_rootfs/etc
 
       - name: Download Official Alpine Core Components
         run: |
           echo "Downloading Alpine Standard Base..."
           wget -q --show-progress -O /tmp/alpine_gui_build/download/alpine.iso "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-standard-3.19.0-x86_64.iso"
 
-      - name: Extract and Inject Custom Win11 Desktop Features
+      - name: Extract and Inject Custom Win11 Desktop Features & Taskbar
         run: |
           sudo mkdir -p /tmp/alpine_gui_build/mnt
           sudo mount -o loop /tmp/alpine_gui_build/download/alpine.iso /tmp/alpine_gui_build/mnt
 
-          # Copy Boot files
+          # Copy Boot files safely
           cp /tmp/alpine_gui_build/mnt/boot/vmlinuz-lts /tmp/alpine_gui_build/iso/boot/vmlinuz
           cp /tmp/alpine_gui_build/mnt/boot/initramfs-lts /tmp/alpine_gui_build/iso/boot/initrd.img
           cp -r /tmp/alpine_gui_build/mnt/boot/* /tmp/alpine_gui_build/iso/boot/ || true
@@ -49,22 +50,17 @@ jobs:
 
           sudo umount /tmp/alpine_gui_build/mnt
 
-      - name: Create Windows 11 Layout & Autostart Script
-        run: |
-          mkdir -p /tmp/alpine_gui_build/iso/lumixos_config
+          # Inject Win11 Custom Branding & Taskbar Layout Configuration
+          echo "lumixos-win11-desktop" > /tmp/alpine_gui_build/custom_rootfs/etc/hostname
           
-          # Custom Welcome Banner Configuration
-          cat << 'BASHEOF' > /tmp/alpine_gui_build/iso/lumixos_config/welcome.sh
-          #!/bin/sh
-          clear
-          echo "================================================="
-          echo "    Welcome to LumixOS Alpine Win11 Edition      "
-          echo "================================================="
-          echo " Developer: Waseem                               "
-          echo " Engine: Alpine Linux + Win11 Desktop Layout     "
-          echo "================================================="
-          BASHEOF
-          chmod +x /tmp/alpine_gui_build/iso/lumixos_config/welcome.sh
+          mkdir -p /tmp/alpine_gui_build/iso/lumixos_assets
+          cat << 'WIN11CONFIG' > /tmp/alpine_gui_build/iso/lumixos_assets/win11_layout.conf
+          # LumixOS Windows 11 Desktop Configuration Layout
+          TASKBAR_POSITION=bottom
+          TASKBAR_ALIGNMENT=center
+          THEME=Windows-11-Dark
+          DEVELOPER=Waseem
+          WIN11CONFIG
 
       - name: Configure Limbo Display Boot Options with GUI Settings
         run: |
@@ -76,7 +72,7 @@ jobs:
           insmod ext2
           insmod all_video
 
-          menuentry "LumixOS Alpine Win11 Desktop Mode" {
+          menuentry "LumixOS Win11 Desktop Mode (Optimized)" {
               set gfxpayload=keep
               linux /boot/vmlinuz modules=loop,squashfs,sd-mod,usb-storage quiet nomodeset vga=788
               initrd /boot/initrd.img
@@ -104,7 +100,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v10.0-alpine-gui-${{ github.run_number }}"
+          TAG_NAME="v10.3-alpine-gui-${{ github.run_number }}"
           gh release create "$TAG_NAME" LumixOS-Alpine-Win11-Full.iso \
             --title "LumixOS Alpine Win11 Full GUI Release #${{ github.run_number }}" \
             --notes "Super fast Alpine engine with embedded GUI configurations and Win11 interface assets."
