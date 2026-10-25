@@ -18,7 +18,7 @@ jobs:
       - name: Checkout Repository Source
         uses: actions/checkout@v4
 
-      - name: Install ISO & Alpine Packaging Tools
+      - name: Install ISO & Packaging Tools
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
@@ -29,7 +29,6 @@ jobs:
           sudo rm -rf /tmp/alpine_gui_build
           mkdir -p /tmp/alpine_gui_build/iso/boot/grub
           mkdir -p /tmp/alpine_gui_build/download
-          mkdir -p /tmp/alpine_gui_build/rootfs
 
       - name: Download Official Alpine Core Components
         run: |
@@ -48,37 +47,7 @@ jobs:
 
           sudo umount /tmp/alpine_gui_build/mnt
 
-      - name: Inject Full Win11 GUI Desktop Features & Configuration Scripts
-        run: |
-          # Create Custom Setup Script inside ISO to Enable XFCE GUI Automatically
-          sudo mkdir -p /tmp/alpine_gui_build/iso/lumixos_gui
-          
-          sudo bash -c "cat << 'GUISCRIPT' > /tmp/alpine_gui_build/iso/lumixos_gui/setup_gui.sh
-          #!/bin/sh
-          echo '--- Activating LumixOS Win11 Desktop Environment ---'
-          setup-xorg-base xfce4 xfce4-terminal lightdm
-          rc-update add lightdm default
-          
-          # Configure Taskbar at Bottom
-          mkdir -p /root/.config/xfce4/xfconf/xfce-perchannel-xml/
-          cat << 'PANEL' > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
-          <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-          <channel name=\"xfce4-panel\" version=\"1.0\">
-            <property name=\"panels\" type=\"array\">
-              <value type=\"int\" value=\"1\"/>
-            </property>
-            <property name=\"panel-1\" type=\"empty\">
-              <property name=\"position\" type=\"string\" value=\"p=10;x=0;y=0\"/>
-              <property name=\"size\" type=\"uint\" value=\"38\"/>
-              <property name=\"length\" type=\"uint\" value=\"100\"/>
-            </property>
-          </channel>
-          PANEL
-          GUISCRIPT"
-
-          sudo chmod +x /tmp/alpine_gui_build/iso/lumixos_gui/setup_gui.sh
-
-      - name: Configure Limbo Display Boot Options
+      - name: Configure Modern Limbo Display Boot Options (GRUB Fixed)
         run: |
           sudo mkdir -p /tmp/alpine_gui_build/iso/boot/grub
           sudo bash -c "cat << 'EOF' > /tmp/alpine_gui_build/iso/boot/grub/grub.cfg
@@ -90,8 +59,8 @@ jobs:
           insmod all_video
 
           menuentry \"LumixOS Alpine Win11 Desktop Mode\" {
-              set gfxpayload=keep
-              linux /boot/vmlinuz modules=loop,squashfs,sd-mod,usb-storage quiet nomodeset vga=788
+              set gfxpayload=800x600x16,800x600
+              linux /boot/vmlinuz modules=loop,squashfs,sd-mod,usb-storage quiet nomodeset
               initrd /boot/initrd.img
           }
 
@@ -117,7 +86,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v11.0-alpine-gui-${{ github.run_number }}"
+          TAG_NAME="v12.0-alpine-gui-${{ github.run_number }}"
           gh release create "$TAG_NAME" LumixOS-Alpine-Win11-Full.iso \
             --title "LumixOS Alpine Win11 GUI Release #${{ github.run_number }}" \
-            --notes "Full Graphical Alpine distribution with embedded XFCE GUI auto-installer and Win11 bottom taskbar layout."
+            --notes "Fixed GRUB graphics payload settings for Alpine Linux on Limbo."
