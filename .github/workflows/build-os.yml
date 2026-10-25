@@ -12,13 +12,13 @@ permissions:
 jobs:
   build-alpine-gui-lumixos:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Checkout Repository Source
         uses: actions/checkout@v4
 
-      - name: Install ISO & Packaging Tools
+      - name: Install ISO & Alpine Packaging Tools
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
@@ -28,43 +28,60 @@ jobs:
         run: |
           sudo rm -rf /tmp/alpine_gui_build
           mkdir -p /tmp/alpine_gui_build/iso/boot/grub
-          mkdir -p /tmp/alpine_gui_build/iso/apks/x86_64
           mkdir -p /tmp/alpine_gui_build/download
-          mkdir -p /tmp/alpine_gui_build/custom_rootfs/etc
+          mkdir -p /tmp/alpine_gui_build/rootfs
 
       - name: Download Official Alpine Core Components
         run: |
           echo "Downloading Alpine Standard Base..."
           wget -q --show-progress -O /tmp/alpine_gui_build/download/alpine.iso "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-standard-3.19.0-x86_64.iso"
 
-      - name: Extract and Inject Custom Win11 Desktop Features & Taskbar
+      - name: Extract Core ISO Files
         run: |
           sudo mkdir -p /tmp/alpine_gui_build/mnt
           sudo mount -o loop /tmp/alpine_gui_build/download/alpine.iso /tmp/alpine_gui_build/mnt
 
-          # Copy Boot files safely
-          cp /tmp/alpine_gui_build/mnt/boot/vmlinuz-lts /tmp/alpine_gui_build/iso/boot/vmlinuz
-          cp /tmp/alpine_gui_build/mnt/boot/initramfs-lts /tmp/alpine_gui_build/iso/boot/initrd.img
-          cp -r /tmp/alpine_gui_build/mnt/boot/* /tmp/alpine_gui_build/iso/boot/ || true
-          cp -r /tmp/alpine_gui_build/mnt/apks/* /tmp/alpine_gui_build/iso/apks/ || true
+          sudo cp /tmp/alpine_gui_build/mnt/boot/vmlinuz-lts /tmp/alpine_gui_build/iso/boot/vmlinuz
+          sudo cp /tmp/alpine_gui_build/mnt/boot/initramfs-lts /tmp/alpine_gui_build/iso/boot/initrd.img
+          sudo cp -r /tmp/alpine_gui_build/mnt/boot/* /tmp/alpine_gui_build/iso/boot/ || true
+          sudo cp -r /tmp/alpine_gui_build/mnt/apks /tmp/alpine_gui_build/iso/ || true
 
           sudo umount /tmp/alpine_gui_build/mnt
 
-          # Inject Win11 Custom Branding & Taskbar Layout Configuration
-          echo "lumixos-win11-desktop" > /tmp/alpine_gui_build/custom_rootfs/etc/hostname
-          
-          mkdir -p /tmp/alpine_gui_build/iso/lumixos_assets
-          cat << 'WIN11CONFIG' > /tmp/alpine_gui_build/iso/lumixos_assets/win11_layout.conf
-          # LumixOS Windows 11 Desktop Configuration Layout
-          TASKBAR_POSITION=bottom
-          TASKBAR_ALIGNMENT=center
-          THEME=Windows-11-Dark
-          DEVELOPER=Waseem
-          WIN11CONFIG
-
-      - name: Configure Limbo Display Boot Options with GUI Settings
+      - name: Inject Full Win11 GUI Desktop Features & Configuration Scripts
         run: |
-          cat << 'EOF' > /tmp/alpine_gui_build/iso/boot/grub/grub.cfg
+          # Create Custom Setup Script inside ISO to Enable XFCE GUI Automatically
+          sudo mkdir -p /tmp/alpine_gui_build/iso/lumixos_gui
+          
+          sudo bash -c "cat << 'GUISCRIPT' > /tmp/alpine_gui_build/iso/lumixos_gui/setup_gui.sh
+          #!/bin/sh
+          echo '--- Activating LumixOS Win11 Desktop Environment ---'
+          setup-xorg-base xfce4 xfce4-terminal lightdm
+          rc-update add lightdm default
+          
+          # Configure Taskbar at Bottom
+          mkdir -p /root/.config/xfce4/xfconf/xfce-perchannel-xml/
+          cat << 'PANEL' > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
+          <?xml version=\"1.0\" encoding=\"UTF-8\"?>
+          <channel name=\"xfce4-panel\" version=\"1.0\">
+            <property name=\"panels\" type=\"array\">
+              <value type=\"int\" value=\"1\"/>
+            </property>
+            <property name=\"panel-1\" type=\"empty\">
+              <property name=\"position\" type=\"string\" value=\"p=10;x=0;y=0\"/>
+              <property name=\"size\" type=\"uint\" value=\"38\"/>
+              <property name=\"length\" type=\"uint\" value=\"100\"/>
+            </property>
+          </channel>
+          PANEL
+          GUISCRIPT"
+
+          sudo chmod +x /tmp/alpine_gui_build/iso/lumixos_gui/setup_gui.sh
+
+      - name: Configure Limbo Display Boot Options
+        run: |
+          sudo mkdir -p /tmp/alpine_gui_build/iso/boot/grub
+          sudo bash -c "cat << 'EOF' > /tmp/alpine_gui_build/iso/boot/grub/grub.cfg
           set default=0
           set timeout=3
 
@@ -72,22 +89,22 @@ jobs:
           insmod ext2
           insmod all_video
 
-          menuentry "LumixOS Win11 Desktop Mode (Optimized)" {
+          menuentry \"LumixOS Alpine Win11 Desktop Mode\" {
               set gfxpayload=keep
               linux /boot/vmlinuz modules=loop,squashfs,sd-mod,usb-storage quiet nomodeset vga=788
               initrd /boot/initrd.img
           }
 
-          menuentry "LumixOS Alpine Safe Mode" {
+          menuentry \"LumixOS Alpine Console Mode\" {
               set gfxpayload=text
               linux /boot/vmlinuz modules=loop,squashfs,sd-mod quiet nomodeset console=tty0
               initrd /boot/initrd.img
           }
-          EOF
+          EOF"
 
       - name: Build Final Alpine GUI ISO
         run: |
-          grub-mkrescue -o LumixOS-Alpine-Win11-Full.iso /tmp/alpine_gui_build/iso
+          sudo grub-mkrescue -o LumixOS-Alpine-Win11-Full.iso /tmp/alpine_gui_build/iso
           ls -lh LumixOS-Alpine-Win11-Full.iso
 
       - name: Upload ISO Artifact
@@ -100,7 +117,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v10.3-alpine-gui-${{ github.run_number }}"
+          TAG_NAME="v11.0-alpine-gui-${{ github.run_number }}"
           gh release create "$TAG_NAME" LumixOS-Alpine-Win11-Full.iso \
-            --title "LumixOS Alpine Win11 Full GUI Release #${{ github.run_number }}" \
-            --notes "Super fast Alpine engine with embedded GUI configurations and Win11 interface assets."
+            --title "LumixOS Alpine Win11 GUI Release #${{ github.run_number }}" \
+            --notes "Full Graphical Alpine distribution with embedded XFCE GUI auto-installer and Win11 bottom taskbar layout."
