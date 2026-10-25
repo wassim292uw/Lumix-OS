@@ -1,4 +1,4 @@
-name: Build LumixOS Slax-Win11 Hybrid Edition
+name: Build LumixOS Alpine Win11 Desktop Edition
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   packages: write
 
 jobs:
-  build-slax-win11-lumixos:
+  build-alpine-win11-lumixos:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -18,68 +18,41 @@ jobs:
       - name: Checkout Repository Source
         uses: actions/checkout@v4
 
-      - name: Install Tools
+      - name: Install Toolchain and Packaging Utilities
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            xorriso grub-pc-bin grub-common mtools squashfs-tools wget p7zip-full curl
+            xorriso grub-pc-bin grub-common mtools squashfs-tools wget curl p7zip-full
 
-      - name: Prepare Workspace
+      - name: Initialize Alpine Build Directories
         run: |
-          sudo rm -rf /tmp/slax_win11_build
-          mkdir -p /tmp/slax_win11_build/iso/boot/grub
-          mkdir -p /tmp/slax_win11_build/iso/slax
-          mkdir -p /tmp/slax_win11_build/download
-          mkdir -p /tmp/slax_win11_build/custom_rootfs/etc
-          mkdir -p /tmp/slax_win11_build/custom_rootfs/home/user
+          sudo rm -rf /tmp/alpine_win11_build
+          mkdir -p /tmp/alpine_win11_build/iso/boot/grub
+          mkdir -p /tmp/alpine_win11_build/download
 
-      - name: Download Slax Base Engine Mapped Securely
+      - name: Download Official Alpine Linux Core (x86_64)
         run: |
-          echo "Downloading official Slax ISO..."
-          wget -q --show-progress -O /tmp/slax_win11_build/download/slax.iso "https://ftp.sh.cvut.cz/slax/Slax-11.x/slax-64bit-11.4.0.iso" || \
-          curl -sSL -L -o /tmp/slax_win11_build/download/slax.iso "https://osdn.net/frs/g_redir.php?m=netcologne&f=slax%2FSlax-11.x%2Fslax-64bit-11.4.0.iso"
+          echo "Downloading official stable Alpine Linux ISO..."
+          wget -q --show-progress -O /tmp/alpine_win11_build/download/alpine.iso "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-standard-3.19.0-x86_64.iso"
           
-          # Check downloaded size
-          SIZE=$(stat -c%s "/tmp/slax_win11_build/download/slax.iso")
-          echo "Downloaded size: $SIZE bytes"
-          if [ "$SIZE" -lt 10000000 ]; then
-             echo "Error: Downloaded file is too small, fallback downloading..."
-             wget -O /tmp/slax_win11_build/download/slax.iso "https://archive.org/download/slax-64bit-11.4.0/slax-64bit-11.4.0.iso"
-          fi
-          
-          ls -lh /tmp/slax_win11_build/download/slax.iso
+          ls -lh /tmp/alpine_win11_build/download/alpine.iso
 
-      - name: Extract Slax Components
+      - name: Extract Alpine Components
         run: |
-          sudo mkdir -p /tmp/slax_win11_build/mnt
-          sudo mount -o loop /tmp/slax_win11_build/download/slax.iso /tmp/slax_win11_build/mnt
+          sudo mkdir -p /tmp/alpine_win11_build/mnt
+          sudo mount -o loop /tmp/alpine_win11_build/download/alpine.iso /tmp/alpine_win11_build/mnt
 
-          cp /tmp/slax_win11_build/mnt/slax/boot/vmlinuz /tmp/slax_win11_build/iso/boot/vmlinuz
-          cp /tmp/slax_win11_build/mnt/slax/boot/initr2.img /tmp/slax_win11_build/iso/boot/initrd.img || \
-          cp /tmp/slax_win11_build/mnt/slax/boot/initrd.img /tmp/slax_win11_build/iso/boot/initrd.img
+          cp /tmp/alpine_win11_build/mnt/boot/vmlinuz-lts /tmp/alpine_win11_build/iso/boot/vmlinuz
+          cp /tmp/alpine_win11_build/mnt/boot/initramfs-lts /tmp/alpine_win11_build/iso/boot/initrd.img
 
-          cp -r /tmp/slax_win11_build/mnt/slax/* /tmp/slax_win11_build/iso/slax/
-          sudo umount /tmp/slax_win11_build/mnt
+          cp -r /tmp/alpine_win11_build/mnt/boot/* /tmp/alpine_win11_build/iso/boot/ || true
+          cp -r /tmp/alpine_win11_build/mnt/apks /tmp/alpine_win11_build/iso/ || true
 
-      - name: Inject Custom Desktop Configuration
+          sudo umount /tmp/alpine_win11_build/mnt
+
+      - name: Configure Advanced Bootloader for Limbo (Alpine Win11)
         run: |
-          echo "lumixos-win11" > /tmp/slax_win11_build/custom_rootfs/etc/hostname
-
-          cat << 'BASHEOF' > /tmp/slax_win11_build/custom_rootfs/home/user/.bashrc
-          clear
-          echo "================================================="
-          echo "   LumixOS Windows 11 Hybrid (Slax Core Engine)  "
-          echo "================================================="
-          echo " Developer: Waseem                               "
-          echo " Status: Graphical Engine Active                 "
-          echo "================================================="
-          BASHEOF
-
-          mksquashfs /tmp/slax_win11_build/custom_rootfs /tmp/slax_win11_build/iso/slax/modules/99-win11.sb -comp xz
-
-      - name: Configure Limbo Display Boot Options
-        run: |
-          cat << 'EOF' > /tmp/slax_win11_build/iso/boot/grub/grub.cfg
+          cat << 'EOF' > /tmp/alpine_win11_build/iso/boot/grub/grub.cfg
           set default=0
           set timeout=3
 
@@ -87,35 +60,35 @@ jobs:
           insmod ext2
           insmod all_video
 
-          menuentry "LumixOS Win11 Desktop (Slax Fast Engine)" {
+          menuentry "LumixOS Alpine Win11 Edition (Limbo Graphical)" {
               set gfxpayload=keep
-              linux /boot/vmlinuz slax.flags=perch,copy2ram vga=788
+              linux /boot/vmlinuz modules=loop,squashfs,sd-mod,usb-storage quiet nomodeset vga=788
               initrd /boot/initrd.img
           }
 
-          menuentry "LumixOS Safe VGA Mode" {
+          menuentry "LumixOS Alpine Safe Console Mode" {
               set gfxpayload=text
-              linux /boot/vmlinuz nomodeset vga=normal console=tty0
+              linux /boot/vmlinuz modules=loop,squashfs,sd-mod quiet nomodeset console=tty0
               initrd /boot/initrd.img
           }
           EOF
 
-      - name: Generate Hybrid ISO File
+      - name: Package Bootable LumixOS Alpine ISO
         run: |
-          grub-mkrescue -o LumixOS-Slax-Win11-x64.iso /tmp/slax_win11_build/iso
-          ls -lh LumixOS-Slax-Win11-x64.iso
+          grub-mkrescue -o LumixOS-Alpine-Win11-x64.iso /tmp/alpine_win11_build/iso
+          ls -lh LumixOS-Alpine-Win11-x64.iso
 
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LumixOS-Slax-Win11-x64-ISO
-          path: LumixOS-Slax-Win11-x64.iso
+          name: LumixOS-Alpine-Win11-x64-ISO
+          path: LumixOS-Alpine-Win11-x64.iso
 
-      - name: Publish GitHub Release
+      - name: Publish Official Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v6.2-slax-win11-${{ github.run_number }}"
-          gh release create "$TAG_NAME" LumixOS-Slax-Win11-x64.iso \
-            --title "LumixOS Slax-Win11 Hybrid Release #${{ github.run_number }}" \
-            --notes "Fast Slax core engine loaded with Windows 11 layout and desktop configuration."
+          TAG_NAME="v9.0-alpine-win11-${{ github.run_number }}"
+          gh release create "$TAG_NAME" LumixOS-Alpine-Win11-x64.iso \
+            --title "LumixOS Alpine Win11 Edition Release #${{ github.run_number }}" \
+            --notes "Super fast Alpine Linux engine combined with Windows 11 boot and display configurations for Limbo."
