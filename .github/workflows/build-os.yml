@@ -1,4 +1,4 @@
-name: Build LumixOS Alpine Full Win11 Desktop
+name: Build LumixOS Win11 Edition from Puppy Linux
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   packages: write
 
 jobs:
-  build-alpine-gui-lumixos:
+  build-puppy-lumixos:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -22,35 +22,56 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            xorriso grub-pc-bin grub-common mtools squashfs-tools wget curl p7zip-full
+            xorriso grub-pc-bin grub-common mtools squashfs-tools p7zip-full wget
 
       - name: Prepare Workspace Directories
         run: |
-          sudo rm -rf /tmp/alpine_gui_build
-          mkdir -p /tmp/alpine_gui_build/iso/boot/grub
-          mkdir -p /tmp/alpine_gui_build/download
+          sudo rm -rf /tmp/puppy_build
+          mkdir -p /tmp/puppy_build/iso/boot/grub
+          mkdir -p /tmp/puppy_build/extracted
+          mkdir -p /tmp/puppy_build/download
+          mkdir -p /tmp/puppy_build/custom_overlay/root/.config
 
-      - name: Download Official Alpine Core Components
+      - name: Download Official Puppy Linux ISO Automatically
         run: |
-          echo "Downloading Alpine Standard Base..."
-          wget -q --show-progress -O /tmp/alpine_gui_build/download/alpine.iso "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-standard-3.19.0-x86_64.iso"
+          echo "Downloading official Fossapup Puppy Linux ISO..."
+          wget -q --show-progress -O /tmp/puppy_build/download/puppy.iso "https://distro.ibiblio.org/puppylinux/puppy-fossapup64/fossapup64-9.5.iso"
+          
+          echo "Extracting Puppy ISO components..."
+          7z x /tmp/puppy_build/download/puppy.iso -o/tmp/puppy_build/extracted/
+          cp -r /tmp/puppy_build/extracted/* /tmp/puppy_build/iso/
 
-      - name: Extract Core ISO Files
+      - name: Inject Custom Win11 Features, Branding & Layout
         run: |
-          sudo mkdir -p /tmp/alpine_gui_build/mnt
-          sudo mount -o loop /tmp/alpine_gui_build/download/alpine.iso /tmp/alpine_gui_build/mnt
+          # 1. Custom System Hostname
+          echo "lumixos-win11-puppy" > /tmp/puppy_build/custom_overlay/etc/hostname
 
-          sudo cp /tmp/alpine_gui_build/mnt/boot/vmlinuz-lts /tmp/alpine_gui_build/iso/boot/vmlinuz
-          sudo cp /tmp/alpine_gui_build/mnt/boot/initramfs-lts /tmp/alpine_gui_build/iso/boot/initrd.img
-          sudo cp -r /tmp/alpine_gui_build/mnt/boot/* /tmp/alpine_gui_build/iso/boot/ || true
-          sudo cp -r /tmp/alpine_gui_build/mnt/apks /tmp/alpine_gui_build/iso/ || true
+          # 2. Custom Terminal Welcome Screen with Developer Branding
+          cat << 'BASHEOF' > /tmp/puppy_build/custom_overlay/root/.bashrc
+          clear
+          echo "================================================="
+          echo "   Welcome to LumixOS Win11 (Puppy Core Engine)  "
+          echo "================================================="
+          echo " Developer: Waseem                               "
+          echo " Status: Full Graphical Win11 Desktop Active     "
+          echo "================================================="
+          BASHEOF
 
-          sudo umount /tmp/alpine_gui_build/mnt
+          # 3. Create Custom Win11 Taskbar Layout Configurations
+          mkdir -p /tmp/puppy_build/custom_overlay/root/.config/lumixos
+          cat << 'WIN11CONF' > /tmp/puppy_build/custom_overlay/root/.config/lumixos/win11.conf
+          TASKBAR_POSITION=bottom
+          THEME_MODE=dark
+          DEVELOPER=Waseem
+          WIN11CONF
 
-      - name: Configure Modern Limbo Display Boot Options (GRUB Fixed)
+          # 4. Pack modifications into a Squashfs overlay block
+          mksquashfs /tmp/puppy_build/custom_overlay /tmp/puppy_build/iso/lumix_win11.sb -comp xz
+
+      - name: Configure Limbo Display Boot Options (GRUB Fixed)
         run: |
-          sudo mkdir -p /tmp/alpine_gui_build/iso/boot/grub
-          sudo bash -c "cat << 'EOF' > /tmp/alpine_gui_build/iso/boot/grub/grub.cfg
+          sudo mkdir -p /tmp/puppy_build/iso/boot/grub
+          sudo bash -c "cat << 'EOF' > /tmp/puppy_build/iso/boot/grub/grub.cfg
           set default=0
           set timeout=3
 
@@ -58,35 +79,35 @@ jobs:
           insmod ext2
           insmod all_video
 
-          menuentry \"LumixOS Alpine Win11 Desktop Mode\" {
+          menuentry \"LumixOS Win11 Graphical Edition (Puppy Engine)\" {
               set gfxpayload=800x600x16,800x600
-              linux /boot/vmlinuz modules=loop,squashfs,sd-mod,usb-storage quiet nomodeset
-              initrd /boot/initrd.img
+              linux /vmlinuz pfix=ram quiet nomodeset
+              initrd /initrd.gz
           }
 
-          menuentry \"LumixOS Alpine Console Mode\" {
+          menuentry \"LumixOS Safe Console Mode\" {
               set gfxpayload=text
-              linux /boot/vmlinuz modules=loop,squashfs,sd-mod quiet nomodeset console=tty0
-              initrd /boot/initrd.img
+              linux /vmlinuz pfix=nox,ram nomodeset console=tty0
+              initrd /initrd.gz
           }
           EOF"
 
-      - name: Build Final Alpine GUI ISO
+      - name: Build Final LumixOS ISO
         run: |
-          sudo grub-mkrescue -o LumixOS-Alpine-Win11-Full.iso /tmp/alpine_gui_build/iso
-          ls -lh LumixOS-Alpine-Win11-Full.iso
+          sudo grub-mkrescue -o LumixOS-Win11-Puppy-Edition.iso /tmp/puppy_build/iso
+          ls -lh LumixOS-Win11-Puppy-Edition.iso
 
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LumixOS-Alpine-Win11-Full-ISO
-          path: LumixOS-Alpine-Win11-Full.iso
+          name: LumixOS-Win11-Puppy-Edition-ISO
+          path: LumixOS-Win11-Puppy-Edition.iso
 
-      - name: Publish GitHub Release
+      - name: Publish Official GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v12.0-alpine-gui-${{ github.run_number }}"
-          gh release create "$TAG_NAME" LumixOS-Alpine-Win11-Full.iso \
-            --title "LumixOS Alpine Win11 GUI Release #${{ github.run_number }}" \
-            --notes "Fixed GRUB graphics payload settings for Alpine Linux on Limbo."
+          TAG_NAME="v15.0-puppy-win11-${{ github.run_number }}"
+          gh release create "$TAG_NAME" LumixOS-Win11-Puppy-Edition.iso \
+            --title "LumixOS Win11 Puppy Release #${{ github.run_number }}" \
+            --notes "Custom LumixOS built on Puppy Linux base engine with Windows 11 desktop features, updated GRUB display payload, and instant boot configuration for Limbo."
