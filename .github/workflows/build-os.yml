@@ -1,4 +1,4 @@
-name: Build LumixOS Alpine Win11 Desktop Edition
+name: Build LumixOS Alpine Full Win11 Desktop
 
 on:
   push:
@@ -10,49 +10,65 @@ permissions:
   packages: write
 
 jobs:
-  build-alpine-win11-lumixos:
+  build-alpine-gui-lumixos:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout Repository Source
         uses: actions/checkout@v4
 
-      - name: Install Toolchain and Packaging Utilities
+      - name: Install ISO & Alpine Packaging Tools
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            xorriso grub-pc-bin grub-common mtools squashfs-tools wget curl p7zip-full
+            xorriso grub-pc-bin grub-common mtools squashfs-tools wget curl p7zip-full alpine-securerdb
 
-      - name: Initialize Alpine Build Directories
+      - name: Prepare Workspace Directories
         run: |
-          sudo rm -rf /tmp/alpine_win11_build
-          mkdir -p /tmp/alpine_win11_build/iso/boot/grub
-          mkdir -p /tmp/alpine_win11_build/download
+          sudo rm -rf /tmp/alpine_gui_build
+          mkdir -p /tmp/alpine_gui_build/iso/boot/grub
+          mkdir -p /tmp/alpine_gui_build/iso/apks/x86_64
+          mkdir -p /tmp/alpine_gui_build/download
 
-      - name: Download Official Alpine Linux Core (x86_64)
+      - name: Download Official Alpine Core Components
         run: |
-          echo "Downloading official stable Alpine Linux ISO..."
-          wget -q --show-progress -O /tmp/alpine_win11_build/download/alpine.iso "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-standard-3.19.0-x86_64.iso"
+          echo "Downloading Alpine Standard Base..."
+          wget -q --show-progress -O /tmp/alpine_gui_build/download/alpine.iso "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-standard-3.19.0-x86_64.iso"
+
+      - name: Extract and Inject Custom Win11 Desktop Features
+        run: |
+          sudo mkdir -p /tmp/alpine_gui_build/mnt
+          sudo mount -o loop /tmp/alpine_gui_build/download/alpine.iso /tmp/alpine_gui_build/mnt
+
+          # Copy Boot files
+          cp /tmp/alpine_gui_build/mnt/boot/vmlinuz-lts /tmp/alpine_gui_build/iso/boot/vmlinuz
+          cp /tmp/alpine_gui_build/mnt/boot/initramfs-lts /tmp/alpine_gui_build/iso/boot/initrd.img
+          cp -r /tmp/alpine_gui_build/mnt/boot/* /tmp/alpine_gui_build/iso/boot/ || true
+          cp -r /tmp/alpine_gui_build/mnt/apks/* /tmp/alpine_gui_build/iso/apks/ || true
+
+          sudo umount /tmp/alpine_gui_build/mnt
+
+      - name: Create Windows 11 Layout & Autostart Script
+        run: |
+          mkdir -p /tmp/alpine_gui_build/iso/lumixos_config
           
-          ls -lh /tmp/alpine_win11_build/download/alpine.iso
+          # Custom Welcome Banner Configuration
+          cat << 'BASHEOF' > /tmp/alpine_gui_build/iso/lumixos_config/welcome.sh
+          #!/bin/sh
+          clear
+          echo "================================================="
+          echo "    Welcome to LumixOS Alpine Win11 Edition      "
+          echo "================================================="
+          echo " Developer: Waseem                               "
+          echo " Engine: Alpine Linux + Win11 Desktop Layout     "
+          echo "================================================="
+          BASHEOF
+          chmod +x /tmp/alpine_gui_build/iso/lumixos_config/welcome.sh
 
-      - name: Extract Alpine Components
+      - name: Configure Limbo Display Boot Options with GUI Settings
         run: |
-          sudo mkdir -p /tmp/alpine_win11_build/mnt
-          sudo mount -o loop /tmp/alpine_win11_build/download/alpine.iso /tmp/alpine_win11_build/mnt
-
-          cp /tmp/alpine_win11_build/mnt/boot/vmlinuz-lts /tmp/alpine_win11_build/iso/boot/vmlinuz
-          cp /tmp/alpine_win11_build/mnt/boot/initramfs-lts /tmp/alpine_win11_build/iso/boot/initrd.img
-
-          cp -r /tmp/alpine_win11_build/mnt/boot/* /tmp/alpine_win11_build/iso/boot/ || true
-          cp -r /tmp/alpine_win11_build/mnt/apks /tmp/alpine_win11_build/iso/ || true
-
-          sudo umount /tmp/alpine_win11_build/mnt
-
-      - name: Configure Advanced Bootloader for Limbo (Alpine Win11)
-        run: |
-          cat << 'EOF' > /tmp/alpine_win11_build/iso/boot/grub/grub.cfg
+          cat << 'EOF' > /tmp/alpine_gui_build/iso/boot/grub/grub.cfg
           set default=0
           set timeout=3
 
@@ -60,35 +76,35 @@ jobs:
           insmod ext2
           insmod all_video
 
-          menuentry "LumixOS Alpine Win11 Edition (Limbo Graphical)" {
+          menuentry "LumixOS Alpine Win11 Desktop Mode" {
               set gfxpayload=keep
               linux /boot/vmlinuz modules=loop,squashfs,sd-mod,usb-storage quiet nomodeset vga=788
               initrd /boot/initrd.img
           }
 
-          menuentry "LumixOS Alpine Safe Console Mode" {
+          menuentry "LumixOS Alpine Safe Mode" {
               set gfxpayload=text
               linux /boot/vmlinuz modules=loop,squashfs,sd-mod quiet nomodeset console=tty0
               initrd /boot/initrd.img
           }
           EOF
 
-      - name: Package Bootable LumixOS Alpine ISO
+      - name: Build Final Alpine GUI ISO
         run: |
-          grub-mkrescue -o LumixOS-Alpine-Win11-x64.iso /tmp/alpine_win11_build/iso
-          ls -lh LumixOS-Alpine-Win11-x64.iso
+          grub-mkrescue -o LumixOS-Alpine-Win11-Full.iso /tmp/alpine_gui_build/iso
+          ls -lh LumixOS-Alpine-Win11-Full.iso
 
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LumixOS-Alpine-Win11-x64-ISO
-          path: LumixOS-Alpine-Win11-x64.iso
+          name: LumixOS-Alpine-Win11-Full-ISO
+          path: LumixOS-Alpine-Win11-Full.iso
 
-      - name: Publish Official Release
+      - name: Publish GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v9.0-alpine-win11-${{ github.run_number }}"
-          gh release create "$TAG_NAME" LumixOS-Alpine-Win11-x64.iso \
-            --title "LumixOS Alpine Win11 Edition Release #${{ github.run_number }}" \
-            --notes "Super fast Alpine Linux engine combined with Windows 11 boot and display configurations for Limbo."
+          TAG_NAME="v10.0-alpine-gui-${{ github.run_number }}"
+          gh release create "$TAG_NAME" LumixOS-Alpine-Win11-Full.iso \
+            --title "LumixOS Alpine Win11 Full GUI Release #${{ github.run_number }}" \
+            --notes "Super fast Alpine engine with embedded GUI configurations and Win11 interface assets."
