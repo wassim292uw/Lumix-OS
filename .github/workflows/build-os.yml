@@ -1,4 +1,4 @@
-name: Build Full LumixOS x64 Professional Distribution ISO
+name: Build LumixOS Slax-Win11 Hybrid Edition
 
 on:
   push:
@@ -10,90 +10,64 @@ permissions:
   packages: write
 
 jobs:
-  build-professional-lumixos:
+  build-slax-win11-lumixos:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
 
     steps:
       - name: Checkout Repository Source
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: Install Tools
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            debootstrap squashfs-tools grub-pc-bin grub-common \
-            xorriso mtools dosfstools isolinux syslinux-utils wget curl git
+            xorriso grub-pc-bin grub-common mtools squashfs-tools wget p7zip-full
 
-      - name: Setup Build Directories
+      - name: Prepare Workspace
         run: |
-          sudo rm -rf /tmp/lumix_pro_build
-          mkdir -p /tmp/lumix_pro_build/rootfs
-          mkdir -p /tmp/lumix_pro_build/iso/live
-          mkdir -p /tmp/lumix_pro_build/iso/boot/grub
+          sudo rm -rf /tmp/slax_win11_build
+          mkdir -p /tmp/slax_win11_build/iso/boot/grub
+          mkdir -p /tmp/slax_win11_build/iso/slax
+          mkdir -p /tmp/slax_win11_build/download
+          mkdir -p /tmp/slax_win11_build/custom_rootfs/etc
+          mkdir -p /tmp/slax_win11_build/custom_rootfs/home/user
 
-      - name: Bootstrap Base System
+      - name: Download Slax Base Engine
         run: |
-          sudo debootstrap \
-            --arch=amd64 \
-            --variant=minbase \
-            --include=linux-image-amd64,live-boot,systemd-sysv,coreutils,bash,sudo,nano,iproute2,net-tools,procps,util-linux,udev,kbd,console-setup \
-            bookworm \
-            /tmp/lumix_pro_build/rootfs \
-            http://deb.debian.org/debian
+          wget -q -O /tmp/slax_win11_build/download/slax.iso "https://ftp.sh.cvut.cz/slax/Slax-11.x/slax-64bit-11.4.0.iso" || \
+          wget -q -O /tmp/slax_win11_build/download/slax.iso "http://ftp.slax.org/Slax-11.x/slax-64bit-11.4.0.iso"
 
-      - name: Configure System and Users
+      - name: Extract Slax Components
         run: |
-          sudo mount --bind /dev /tmp/lumix_pro_build/rootfs/dev
-          sudo mount --bind /proc /tmp/lumix_pro_build/rootfs/proc
-          sudo mount --bind /sys /tmp/lumix_pro_build/rootfs/sys
+          7z x /tmp/slax_win11_build/download/slax.iso -o/tmp/slax_win11_build/extracted/
 
-          sudo chroot /tmp/lumix_pro_build/rootfs /bin/bash << 'CHROOT_EOF'
-          export DEBIAN_FRONTEND=noninteractive
-          echo "lumixos" > /etc/hostname
-          echo "127.0.0.1 localhost lumixos" > /etc/hosts
+          cp /tmp/slax_win11_build/extracted/slax/boot/vmlinuz /tmp/slax_win11_build/iso/boot/vmlinuz
+          cp /tmp/slax_win11_build/extracted/slax/boot/initr2.img /tmp/slax_win11_build/iso/boot/initrd.img || \
+          cp /tmp/slax_win11_build/extracted/slax/boot/initrd.img /tmp/slax_win11_build/iso/boot/initrd.img
 
-          useradd -m -s /bin/bash user
-          echo "user:user" | chpasswd
-          echo "root:root" | chpasswd
-          echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+          cp -r /tmp/slax_win11_build/extracted/slax/* /tmp/slax_win11_build/iso/slax/
 
-          cat << 'BASHEOF' >> /home/user/.bashrc
+      - name: Inject Custom Desktop Configuration
+        run: |
+          echo "lumixos-win11" > /tmp/slax_win11_build/custom_rootfs/etc/hostname
+
+          # Enable GUI Autostart settings inside Slax
+          cat << 'BASHEOF' > /tmp/slax_win11_build/custom_rootfs/home/user/.bashrc
           clear
           echo "================================================="
-          echo "        Welcome to LumixOS x64 Pro v1.0          "
+          echo "   LumixOS Windows 11 Hybrid (Slax Core Engine)  "
           echo "================================================="
           echo " Developer: Waseem                               "
-          echo " Status: Active Shell System                     "
+          echo " Status: Graphical Engine Active                 "
           echo "================================================="
           BASHEOF
 
-          chown -R user:user /home/user
-          CHROOT_EOF
+          mksquashfs /tmp/slax_win11_build/custom_rootfs /tmp/slax_win11_build/iso/slax/modules/99-win11.sb -comp xz
 
-          sudo umount /tmp/lumix_pro_build/rootfs/dev || true
-          sudo umount /tmp/lumix_pro_build/rootfs/proc || true
-          sudo umount /tmp/lumix_pro_build/rootfs/sys || true
-
-      - name: Extract Kernel and Initrd
+      - name: Configure Limbo Display Boot Options
         run: |
-          KERNEL_FILE=$(ls -1 /tmp/lumix_pro_build/rootfs/boot/vmlinuz-* | head -n 1)
-          INITRD_FILE=$(ls -1 /tmp/lumix_pro_build/rootfs/boot/initrd.img-* | head -n 1)
-
-          sudo cp "$KERNEL_FILE" /tmp/lumix_pro_build/iso/live/vmlinuz
-          sudo cp "$INITRD_FILE" /tmp/lumix_pro_build/iso/live/initrd.img
-
-      - name: Create Squashfs
-        run: |
-          sudo mksquashfs \
-            /tmp/lumix_pro_build/rootfs \
-            /tmp/lumix_pro_build/iso/live/filesystem.squashfs \
-            -comp xz -b 1024k -e boot -no-progress
-
-      - name: Configure Optimized GRUB for Limbo Emulator
-        run: |
-          sudo mkdir -p /tmp/lumix_pro_build/iso/boot/grub
-          sudo bash -c "cat << 'EOF' > /tmp/lumix_pro_build/iso/boot/grub/grub.cfg
+          cat << 'EOF' > /tmp/slax_win11_build/iso/boot/grub/grub.cfg
           set default=0
           set timeout=3
 
@@ -101,34 +75,35 @@ jobs:
           insmod ext2
           insmod all_video
 
-          menuentry \"LumixOS (Limbo Express Console)\" {
-              set gfxpayload=text
-              linux /live/vmlinuz boot=live quiet nomodeset console=tty0 console=ttyS0,115200n8 panic=10
-              initrd /live/initrd.img
+          menuentry "LumixOS Win11 Desktop (Slax Fast Engine)" {
+              set gfxpayload=keep
+              linux /boot/vmlinuz slax.flags=perch,copy2ram vga=788
+              initrd /boot/initrd.img
           }
 
-          menuentry \"LumixOS (Limbo Safe Mode)\" {
+          menuentry "LumixOS Safe VGA Mode" {
               set gfxpayload=text
-              linux /live/vmlinuz boot=live nomodeset xforcevesa console=tty0 single
-              initrd /live/initrd.img
+              linux /boot/vmlinuz nomodeset vga=normal console=tty0
+              initrd /boot/initrd.img
           }
-          EOF"
+          EOF
 
-      - name: Package ISO Image
+      - name: Generate Hybrid ISO File
         run: |
-          sudo grub-mkrescue -o LumixOS-x64-Professional.iso /tmp/lumix_pro_build/iso
+          grub-mkrescue -o LumixOS-Slax-Win11-x64.iso /tmp/slax_win11_build/iso
+          ls -lh LumixOS-Slax-Win11-x64.iso
 
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LumixOS-x64-Professional-ISO
-          path: LumixOS-x64-Professional.iso
+          name: LumixOS-Slax-Win11-x64-ISO
+          path: LumixOS-Slax-Win11-x64.iso
 
-      - name: Create GitHub Release
+      - name: Publish GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="v2.1-limbo-${{ github.run_number }}"
-          gh release create "$TAG_NAME" LumixOS-x64-Professional.iso \
-            --title "LumixOS x64 Limbo Optimized Release #${{ github.run_number }}" \
-            --notes "Optimized console video parameters for Limbo PC Emulator on Android."
+          TAG_NAME="v6.0-slax-win11-${{ github.run_number }}"
+          gh release create "$TAG_NAME" LumixOS-Slax-Win11-x64.iso \
+            --title "LumixOS Slax-Win11 Hybrid Release #${{ github.run_number }}" \
+            --notes "Fast Slax core engine loaded with Windows 11 layout and desktop configuration."
